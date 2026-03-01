@@ -1,0 +1,22 @@
+# AWS credentials - never commit these
+.env
+*.env
+.aws/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Test artifacts
+*.log
+*.tmp
