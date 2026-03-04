@@ -39,20 +39,31 @@ def get_latest_gdelt_url() -> str:
  
 
 def fetch_gdelt_dataframe() -> pd.DataFrame:
-    url = get_latest_gdelt_url()
+    import time
     
-    df = pd.read_csv(
-        url,
-        sep='\t',
-        header=None,
-        names=GDELT_COLUMNS,
-        usecols=USECOLS,
-        dtype=str,
-        on_bad_lines='skip',
-        compression='zip'
-    )
-    
-    return df
+    for attempt in range(3):
+        try:
+            url = get_latest_gdelt_url()
+            print(f'Attempt {attempt + 1} — fetching: {url}')
+            
+            df = pd.read_csv(
+                url,
+                sep='\t',
+                header=None,
+                names=GDELT_COLUMNS,
+                usecols=USECOLS,
+                dtype=str,
+                on_bad_lines='skip',
+                compression='zip'
+            )
+            return df
+            
+        except Exception as e:
+            print(f'Attempt {attempt + 1} failed: {e}')
+            if attempt < 2:
+                time.sleep(10)
+            else:
+                raise
 
 
 def format_date(sqldate: str) -> str:
@@ -126,10 +137,14 @@ def query_gdelt(keywords: list, region: str = None, limit: int = 20) -> list:
             'location': row['ActionGeo_FullName'],
             'actors_involved': [
                 a for a in [row['Actor1Name'], row['Actor2Name']]
-                if a and a != 'nan'
+                if str(a).lower() not in ['nan', 'none', '']
             ],
-            'event_description': f"Event involving {row['Actor1Name']} "
-                                 f"in {row['ActionGeo_FullName']}",
+            'event_description': (
+                f"Event involving "
+                f"{'unknown actor' if str(row['Actor1Name']).lower() in ['nan', 'none', ''] else row['Actor1Name']}"
+                f" in "
+                f"{'unknown location' if str(row['ActionGeo_FullName']).lower() in ['nan', 'none', ''] else row['ActionGeo_FullName']}"
+            ),
             'event_state': None,
             'goldstein_scale': float(row['GoldsteinScale']) 
                                if row['GoldsteinScale'] != 'nan' 
