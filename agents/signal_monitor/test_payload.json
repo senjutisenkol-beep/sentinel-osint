@@ -1,0 +1,15 @@
+{
+  "actionGroup": "gdelt-query-action",
+  "apiPath": "/query-gdelt",
+  "httpMethod": "POST",
+  "requestBody": {
+    "content": {
+      "application/json": {
+        "properties": [
+          {"name": "keywords", "type": "string", "value": "[\"conflict\",\"attack\"]"},
+          {"name": "region", "type": "string", "value": "Africa"}
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "GDELT Query API",
+    "version": "1.0.0",
+    "description": "Query GDELT for real-time geopolitical conflict events"
+  },
+  "paths": {
+    "/query-gdelt": {
+      "post": {
+        "summary": "Query GDELT for conflict events",
+        "description": "Fetches latest geopolitical conflict events from GDELT matching provided keywords and optional region filter",
+        "operationId": "queryGdelt",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["keywords"],
+                "properties": {
+                  "keywords": {
+                    "type": "string",
+                    "description": "JSON array of search keywords as string e.g. [\"insurgency\",\"conflict\"]"
+                  },
+                  "region": {
+                    "type": "string",
+                    "description": "Optional geographic region filter e.g. West Africa, Middle East"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response with conflict events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "description": "List of conflict events matching the query"
+                    },
+                    "query": {
+                      "type": "object",
+                      "description": "Query metadata including keywords used and retrieval timestamp"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
