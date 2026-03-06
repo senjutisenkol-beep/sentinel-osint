@@ -66,23 +66,6 @@ def fetch_gdelt_dataframe() -> pd.DataFrame:
                 raise
 
 
-def format_date(sqldate: str) -> str:
-    """
-    Converts GDELT SQLDATE format (YYYYMMDD) to readable date string.
-    
-    Args:
-        sqldate: date in YYYYMMDD format
-    
-    Returns:
-        formatted date string
-    """
-    try:
-        date_obj = datetime.strptime(sqldate, '%Y%m%d')
-        return date_obj.strftime('%Y-%m-%d')
-    except (ValueError, TypeError):
-        return sqldate
-
-
 def query_gdelt(keywords: list, region: str = None, limit: int = 20) -> list:
     """
     Fetches latest GDELT export, filters by keywords and 
@@ -172,6 +155,55 @@ def format_date(sqldate: str) -> str:
         ).strftime('%Y-%m-%d')
     except (ValueError, TypeError):
         return str(sqldate)
+def calculate_confidence(events: list) -> float:
+    """
+    Scores the quality of the GDELT signal on a 0.0 to 1.0 scale.
+
+    Components:
+      0.1  — base score (empty results, pipeline never gets zero)
+      0.4  — at least 1 event returned
+      +0.2 — 5 or more events (volume signal)
+      +0.15 — most recent event within 24 hours (recency signal)
+      +0.25 — average Goldstein scale <= -4 (consistent destabilising signal)
+
+    Max possible: 1.0
+    Min possible: 0.1
+    """
+    # Start at 0.1 — even empty results have minimal confidence
+    # This ensures the pipeline never receives a zero score
+    confidence = 0.1
+
+    if len(events) > 0:
+
+        # Base score — we have at least something to work with
+        confidence = 0.4
+
+        # Volume bonus — 5+ events suggests a pattern, not noise
+        if len(events) >= 5:
+            confidence += 0.2
+
+        # Recency bonus — how old is the most recent event?
+        today = datetime.now(timezone.utc).date()
+        most_recent = max(events, key=lambda e: e['date'])['date']
+        most_recent_date = datetime.strptime(most_recent, '%Y-%m-%d').date()
+        days_gap = (today - most_recent_date).days
+        if days_gap <= 1:
+            confidence += 0.15
+
+        # Goldstein bonus — consistent destabilising signal
+        # Filter out None values first — some GDELT events have no score
+        goldstein_values = [
+            e['goldstein_scale'] for e in events
+            if e['goldstein_scale'] is not None
+        ]
+        if len(goldstein_values) > 0:
+            avg_goldstein = sum(goldstein_values) / len(goldstein_values)
+            if avg_goldstein <= -4:
+                confidence += 0.25
+
+    return round(confidence, 2)
+
+
 def run_query(keywords: list, region: str = None) -> dict:
     """
     Public interface for lambda_handler.
@@ -188,9 +220,10 @@ def run_query(keywords: list, region: str = None) -> dict:
     
     try:
         events = query_gdelt(keywords=keywords, region=region)
-        
+
         return {
             'events': events,
+            'confidence_score': calculate_confidence(events),
             'query': {
                 'keywords_used': keywords,
                 'region_filter': region.lower() if region else None,
