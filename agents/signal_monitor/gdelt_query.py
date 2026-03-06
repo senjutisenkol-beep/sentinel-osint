@@ -136,14 +136,14 @@ def query_gdelt(keywords: list, region: str = None, limit: int = 20) -> list:
             'country': row['ActionGeo_CountryCode'],
             'location': row['ActionGeo_FullName'],
             'actors_involved': [
-                a for a in [row['Actor1Name'], row['Actor2Name']]
+                str(a).lower() for a in [row['Actor1Name'], row['Actor2Name']]
                 if str(a).lower() not in ['nan', 'none', '']
             ],
             'event_description': (
                 f"Event involving "
-                f"{'unknown actor' if str(row['Actor1Name']).lower() in ['nan', 'none', ''] else row['Actor1Name']}"
+                f"{'unknown actor' if str(row['Actor1Name']).lower() in ['nan', 'none', ''] else str(row['Actor1Name']).lower()}"
                 f" in "
-                f"{'unknown location' if str(row['ActionGeo_FullName']).lower() in ['nan', 'none', ''] else row['ActionGeo_FullName']}"
+                f"{'unknown location' if str(row['ActionGeo_FullName']).lower() in ['nan', 'none', ''] else str(row['ActionGeo_FullName']).lower()}"
             ),
             'event_state': None,
             'goldstein_scale': float(row['GoldsteinScale']) 
@@ -193,7 +193,7 @@ def run_query(keywords: list, region: str = None) -> dict:
             'events': events,
             'query': {
                 'keywords_used': keywords,
-                'region_filter': region,
+                'region_filter': region.lower() if region else None,
                 'total_found': len(events),
                 'retrieved_at': retrieved_at
             }
@@ -204,7 +204,7 @@ def run_query(keywords: list, region: str = None) -> dict:
             'events': [],
             'query': {
                 'keywords_used': keywords,
-                'region_filter': region,
+                'region_filter': region.lower() if region else None,
                 'total_found': 0,
                 'retrieved_at': retrieved_at
             },
@@ -216,7 +216,7 @@ def run_query(keywords: list, region: str = None) -> dict:
             'events': [],
             'query': {
                 'keywords_used': keywords,
-                'region_filter': region,
+                'region_filter': region.lower() if region else None,
                 'total_found': 0,
                 'retrieved_at': retrieved_at
             },
@@ -228,7 +228,7 @@ def run_query(keywords: list, region: str = None) -> dict:
             'events': [],
             'query': {
                 'keywords_used': keywords,
-                'region_filter': region,
+                'region_filter': region.lower() if region else None,
                 'total_found': 0,
                 'retrieved_at': retrieved_at
             },

@@ -1,13 +1,14 @@
 import boto3
 import json
+from uuid import uuid4
 
 client = boto3.client('bedrock-agent-runtime', region_name='us-east-1')
 
 response = client.invoke_agent(
     agentId='OPABTSHSPN',
     agentAliasId='TSTALIASID',
-    sessionId='test-session-001',
-    inputText='Find insurgency events in West Africa'
+    sessionId=str(uuid4()),
+    inputText='Find conflict events in Nigeria'
 )
 
 full_response = ''
