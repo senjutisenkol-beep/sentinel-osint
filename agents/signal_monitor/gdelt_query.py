@@ -66,6 +66,23 @@ def fetch_gdelt_dataframe() -> pd.DataFrame:
                 raise
 
 
+def format_date(sqldate: str) -> str:
+    """
+    Converts GDELT SQLDATE format (YYYYMMDD) to readable date string.
+    
+    Args:
+        sqldate: date in YYYYMMDD format
+    
+    Returns:
+        formatted date string
+    """
+    try:
+        date_obj = datetime.strptime(sqldate, '%Y%m%d')
+        return date_obj.strftime('%Y-%m-%d')
+    except (ValueError, TypeError):
+        return sqldate
+
+
 def query_gdelt(keywords: list, region: str = None, limit: int = 20) -> list:
     """
     Fetches latest GDELT export, filters by keywords and 
@@ -235,6 +252,7 @@ def run_query(keywords: list, region: str = None) -> dict:
     except requests.Timeout:
         return {
             'events': [],
+            'confidence_score': 0.1,
             'query': {
                 'keywords_used': keywords,
                 'region_filter': region.lower() if region else None,
@@ -247,6 +265,7 @@ def run_query(keywords: list, region: str = None) -> dict:
     except requests.HTTPError as e:
         return {
             'events': [],
+            'confidence_score': 0.1,
             'query': {
                 'keywords_used': keywords,
                 'region_filter': region.lower() if region else None,
@@ -259,6 +278,7 @@ def run_query(keywords: list, region: str = None) -> dict:
     except Exception as e:
         return {
             'events': [],
+            'confidence_score': 0.1,
             'query': {
                 'keywords_used': keywords,
                 'region_filter': region.lower() if region else None,
