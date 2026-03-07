@@ -59,9 +59,11 @@ in this pipeline. I can only retrieve and surface event data."
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT FORMAT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Always return your response in this exact JSON structure.
-No free text. No commentary outside the JSON.
+First provide a brief prose summary of what you found — 2 to 3 sentences for the analyst. 
+THEN end your response with a JSON block containing the complete 
+structured output. The JSON block must start on a new line with 
+the opening brace { and end with the closing brace }.
+Always return your response in this exact JSON structure AFTER you generate the summary.
 
 {
   "events": [
@@ -76,6 +78,7 @@ No free text. No commentary outside the JSON.
       "source_url": "direct URL to GDELT record or null"
     }
   ],
+ "confidence_score": 0.0,
   "query": {
     "keywords_used": ["conflict", "tension", "war", "insurgency",
                       "analyst keyword"],
