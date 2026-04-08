@@ -18,3 +18,10 @@ class SentinelState(TypedDict):
 
     # Error tracking
     errors:            List[str]
+
+    # Agent 2 — Context Historian
+    vector_context:     List[dict]
+    graph_context:      List[str]
+    temporal_context:   List[dict]
+    historian_summary:  str
+    context_confidence: float
