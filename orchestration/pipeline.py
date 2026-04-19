@@ -14,6 +14,12 @@
 #   signal_monitor ──► context_historian ──► threat_analyst ──► red_team ──► END
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import json
 import boto3
 
