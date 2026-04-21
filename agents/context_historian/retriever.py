@@ -146,7 +146,7 @@ def temporal_retrieve(query: str, signal_summary: str = '') -> List[dict]:
 def vector_retrieve(query: str, signal_summary: str = '') -> List[dict]:
     """
     Query the Bedrock Knowledge Base (WGLUOKITSP) using hybrid search.
-    Returns up to 4 chunks with score >= 0.65, formatted for SentinelState.
+    Returns up to 4 chunks with score >= 0.50, formatted for SentinelState.
     
     Combines analyst query + signal summary for richer semantic coverage.
     """
@@ -181,7 +181,9 @@ def vector_retrieve(query: str, signal_summary: str = '') -> List[dict]:
         score = result.get('score', 0.0)
 
         # Apply minimum score threshold — discard noise
-        if score < 0.65:
+        # Lowered from 0.65 on Day 10 evaluation —
+        # 0 chunks returned across 5 queries at 0.65
+        if score < 0.50:
             continue
 
         content = result.get('content', {}).get('text', '')
