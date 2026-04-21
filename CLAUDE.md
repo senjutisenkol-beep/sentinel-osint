@@ -619,7 +619,7 @@ Impact on existing work: NONE.
 
 ---
 
-#### DAY 6 — Confidence Scoring + LangGraph Foundations (IN PROGRESS)
+#### DAY 6 — Confidence Scoring + LangGraph Foundations — COMPLETE (2026-03-10)
 
 ##### Day 6 Execution Sequence (In Order)
 ```
@@ -800,7 +800,7 @@ orchestration/test_pipeline.py             NOT YET WRITTEN
 
 ---
 
-#### DAY 7 — Context Historian: Seed Knowledge Graph (IN PROGRESS)
+#### DAY 7 — Context Historian: Seed Knowledge Graph — COMPLETE (2026-03-10)
 
 ##### What Was Built
 File: `agents/context_historian/graph/seed_graph.py`
@@ -987,9 +987,361 @@ embedded by `amazon.titan-embed-text-v2:0` (1024 dims), and stored in Pinecone
 under the `geopolitical-history` namespace. The Context Historian Bedrock Agent
 will be linked to this KB to enable RAG retrieval of historical geopolitical parallels.
 
-##### Next steps (Day 9)
-- Create Context Historian Bedrock Agent in Bedrock console
-- Write instruction prompt for Context Historian
-- Attach KB `WGLUOKITSP` to the agent
-- Write action group schema for context retrieval
-- Test agent with a sample query against the KB
+##### Git commit (2026-03-10)
+```
+commit 7d1e4df — "Day 8 complete: KB synced, 6 docs indexed, Nova Lite parser"
+Files committed: .env.example, CLAUDE.md, config.py, orchestration/__init__.py,
+                 requirements.txt, shared/__init__.py, shared/aws_client.py,
+                 shared/logger.py, shared/s3_utils.py
+Note: .env is gitignored — DATA_SOURCE_ID and PARSER vars written to local .env only
+```
+
+---
+
+#### Day 8 (Part 2) — Context Historian: 3-Channel Retrieval + Synthesis — COMPLETE (2026-04-19)
+
+##### What Was Built
+Agent 2 (Context Historian) completed. Started with a broken `temporal_retrieve()` and a
+pipeline that routed Agent 2 to END without running it. By end of session, all three retrieval
+channels were operational and a live Claude Sonnet synthesis call produced analyst-grade
+intelligence prose.
+
+##### Architecture Decision — Direct Retrieval, Not Bedrock Agent
+Context Historian was implemented as pure Python + LangGraph, **not** as a Bedrock Agent.
+
+```
+Analyst query + signal_summary
+         │
+         ├─► graph_retrieve()     NetworkX .pkl — relationship traversal (32 edges returned)
+         ├─► temporal_retrieve()  NetworkX .pkl — chronological event nodes (15 events returned)
+         └─► vector_retrieve()    Bedrock KB WGLUOKITSP + Pinecone — semantic search
+                    │
+                    ▼
+              synthesiser.py
+              invoke_model() → Claude Sonnet
+                    │
+                    ▼
+         historian_summary, context_confidence
+```
+
+Rationale: synthesiser receives all inputs pre-prepared — no tool calls, no session memory,
+no KB query needed. `invoke_model` = direct HTTPS call. `invoke_agent` adds ~500ms latency,
+prompt modification, and agent session management with no benefit here.
+Rule: use the simplest AWS service that meets the requirement.
+
+##### Files Built
+```
+agents/context_historian/retrievers/temporal_retriever.py   MODIFIED — sparse fallback
+agents/context_historian/retrievers/vector_retriever.py     NEW — KB retrieve() call
+agents/context_historian/synthesiser.py                     NEW — invoke_model synthesis
+orchestration/pipeline.py                                   MODIFIED — node wired in
+orchestration/state.py                                      MODIFIED — 5 new fields added
+```
+
+##### Fix 1 — Sparse Metadata Fallback in temporal_retrieve()
+Event nodes (16 total) had empty `description`, `actors`, `region` fields — data quality
+gap from seed ingestion. Entity-filter returned only 3/16 events for a Mali query.
+
+Fix: if entity-filtered result set < 5 events, discard filter and return all 16 events
+sorted chronologically. Threshold of 5 = "minimum viable context" for causal chain reasoning.
+
+Pattern: try precise filter → fall back to broader set when data is sparse.
+Long-term fix: enrich Event node metadata in Week 3 MCP enrichment cycle.
+
+##### Fix 2 — HYBRID Search Downgraded to SEMANTIC
+HYBRID search requires Pinecone index provisioned with both dense + sparse vector columns.
+Index was created with dense vectors only. Bedrock surfaces this only as a `ValidationException`
+at runtime, not at KB creation time.
+
+Fix: `overrideSearchType: SEMANTIC`. Acceptable trade-off for a 6-document KB — corpus too
+small for irrelevant chunks to score above 0.65. Long-term: recreate Pinecone index with
+sparse vector support when KB grows beyond ~20 documents (Week 3 enrichment).
+
+##### vector_retrieve() — Key Implementation Details
+```python
+# Query enrichment (HyDE-adjacent pattern)
+combined_query = f"{query}. Context: {signal_summary[:300]}"
+# 300-char cap: prevents ValidationException + avoids diluting semantic signal
+# Agent 1's opening sentences are the most topically dense part of its response
+
+# Bedrock retrieve() call
+client = boto3.client('bedrock-agent-runtime', region_name='us-east-1')
+# Note: bedrock-agent-runtime (not bedrock-runtime) — retrieval uses agent runtime client
+response = client.retrieve(
+    knowledgeBaseId='WGLUOKITSP',
+    retrievalQuery={'text': combined_query},
+    retrievalConfiguration={
+        'vectorSearchConfiguration': {
+            'numberOfResults': 4,
+            'overrideSearchType': 'SEMANTIC'
+        }
+    }
+)
+# Score filter: discard chunks with cosine similarity < 0.65
+# 0.65–0.8 = genuinely relevant; < 0.65 = loosely related (introduces noise)
+# 0.65 is a starting point — calibrate after Day 10 evaluation
+```
+
+##### synthesiser.py — Key Implementation Details
+```python
+# model ID — correct Bedrock identifier for Claude 3.5 Sonnet v2
+modelId = 'anthropic.claude-3-5-sonnet-20241022-v2:0'
+
+# response body is a streaming object — must .read() before json.loads()
+response_body = json.loads(response['body'].read())
+
+# Markdown fence stripping — Claude occasionally wraps response in ```json ... ```
+# even with explicit instructions not to. Strip defensively.
+if '```' in raw_text:
+    raw_text = raw_text.split('```')[1]
+    if raw_text.startswith('json'):
+        raw_text = raw_text[4:]
+```
+
+Prompt structure: role framing ("You are a geopolitical intelligence analyst") +
+channel labelling (GRAPH RELATIONSHIPS:, CHRONOLOGICAL EVENTS:, DOCUMENT CONTEXT:) +
+structured output instruction (JSON with exactly two keys: `summary` and `confidence`).
+`{{ }}` in f-strings = escaped braces (renders as literal `{ }`).
+
+##### SentinelState Fields Added (orchestration/state.py)
+```python
+# Agent 2 outputs — written by context_historian_node, read by Agent 3
+graph_context:      List[str]   # relationship strings from NetworkX traversal
+temporal_context:   List[dict]  # event dicts sorted chronologically
+vector_context:     List[dict]  # KB chunks with content, score, source_uri
+historian_summary:  str         # Claude synthesis prose (analyst-grade)
+context_confidence: float       # 0.0–1.0 Claude self-assessment of context quality
+```
+
+LangGraph TypedDict contract: ALL fields must be present in `initial_state` at
+`pipeline.invoke()` — even fields Agent 2 will overwrite. Declare empty defaults.
+Each node returns only the fields it changes; LangGraph merges the rest automatically.
+
+##### Pipeline Wiring (orchestration/pipeline.py)
+Two changes:
+1. `graph.add_node('context_historian', context_historian_node)` — registers the real node
+2. Routing dict: `'context_historian': END` → `'context_historian': 'context_historian'`
+   (was routing to terminal END instead of the registered node)
+3. Added fixed exit edge: `graph.add_edge('context_historian', END)`
+   (Week 3: replace this with edge to `threat_analyst`)
+
+Routing threshold temporarily lowered 0.4 → 0.05 for Day 8 testing only.
+GDELT returned 0 events for Mali/JNIM at test time → Agent 1 confidence = 0.1.
+With 0.4 threshold, pipeline routed to clarification and Agent 2 never ran.
+Restore 0.4 before Week 3. Calibrate based on Day 10 evaluation data.
+
+##### End-to-End Test Result — Mali/JNIM Query
+```
+graph channel:    32 relationships returned (strong)
+temporal channel: 15 events returned (strong)
+vector channel:   0 chunks above 0.65 threshold (data gap — small KB)
+context_confidence: 0.35 (Claude correctly assessed 2/3 channels strong, no live signal)
+```
+
+Historian summary excerpt (actual output):
+> "JNIM was formed on 2 March 2017 through the merger of four jihadist groups under the
+> AQIM umbrella and has maintained active operations in Northern Mali, Kidal, Central Mali,
+> and the Liptako-Gourma tri-border region since 2017, expanding into Burkina Faso by 2019."
+
+> "France's Operation Barkhane ended in August 2022 following expulsion by the Mali junta,
+> MINUSMA withdrew by December 2023 at Mali's request... These withdrawals created a
+> significant counter-insurgency vacuum that the Wagner Group — deployed from January 2023
+> — and the Malian Armed Forces (FAMA) have been tasked to fill."
+
+##### context_confidence Scale
+```
+0.9+   All three channels returned strong relevant data
+0.5    Only one channel had useful data
+0.2    Context sparse or irrelevant
+0.35   Two channels strong, no live signal (Mali test result)
+```
+
+Claude self-assessment: consistent within session, not absolute. Real value:
+Agent 3 reads `context_confidence` from state and calibrates weight given to Agent 2 output.
+
+##### Errors Encountered and Fixed
+Error 1 — ValidationException: HYBRID search type not supported
+  Root cause: Pinecone index provisioned with dense vectors only
+  Fix: change `overrideSearchType` from HYBRID to SEMANTIC
+
+Error 2 — ValidationException: Invalid model identifier
+  `us.anthropic.claude-sonnet-4-5-20251001` does not exist in Bedrock
+  Fix: use `anthropic.claude-3-5-sonnet-20241022-v2:0`
+
+Error 3 — Agent 1 print block duplicated in test output
+  Root cause: print block accidentally duplicated during editing of test_pipeline.py
+  Fix: delete one copy
+
+##### AWS Debugging Pattern (from Day 8)
+Always print `str(e)` in except blocks — reveals full AWS error message.
+Order: AccessDeniedException → check IAM permissions first.
+       ResourceNotFoundException → check resource ID and region.
+       ValidationException → check request/resource configuration mismatch.
+
+##### Git Commit
+```
+cbc8e51 — "Day 8: Build Agent 2 Context Historian — 3-channel retrieval + synthesis"
+```
+
+---
+
+#### DAY 9 — LangSmith Tracing + Observability — COMPLETE (2026-04-19)
+
+##### What Was Done
+- LangSmith account created, API key generated (`lsv2_pt_` format)
+- Environment variables added to `.env`:
+  ```
+  LANGCHAIN_TRACING_V2=true
+  LANGCHAIN_API_KEY=<key>
+  LANGCHAIN_PROJECT=sentinel-osint
+  LANGCHAIN_ENDPOINT=https://eu.api.smith.langchain.com
+  ```
+  Note: EU endpoint used — standard `api.smith.langchain.com` returned 403 until
+  account email verification resolved. EU endpoint accepted the key immediately.
+- `load_dotenv()` added to `orchestration/pipeline.py` so LangSmith env vars are
+  picked up at import time before LangGraph initialises the graph
+- `.env` formatting fixed — KB_ID and PINECONE_INDEX lines had UTF-16 encoding
+  artifact (space-separated characters) from earlier edit. Fixed via Python rewrite.
+- Routing threshold restored: `>= 0.05` (test value) → `>= 0.4` (production)
+
+##### 5 Test Queries Run and Traced
+
+| # | Query | Agent 1 confidence | GDELT events | Agent 2 confidence | Result |
+|---|-------|-------------------|--------------|-------------------|--------|
+| 1 | Mali / JNIM insurgency (baseline) | 0.1 | 0 | 0.35 | Agent 2 OK |
+| 2 | Red Sea / Houthi shipping | 0.1 | 0 | 0.0 | Synthesiser JSON parse error |
+| 3 | Drone / UAV Sahel | 0.1 | 0 | 0.2 | Good historian summary |
+| 4 | Wagner Group Africa | **0.75** | **10** | **0.52** | Best run — both agents strong |
+| 5 | Niger 2023 coup | 0.1 | 0 | 0.45 | Agent 1 parse error, Agent 2 OK |
+
+##### Bottleneck Identified
+```
+signal_monitor_node   28.31s   68% of total pipeline time
+  └─ invoke_agent() call through Bedrock Agent infrastructure
+     includes: Lambda cold start + GDELT fetch + CSV parse + Agent reasoning
+
+graph_retrieve        <1s      pure Python on local .pkl — as expected
+temporal_retrieve     <1s      pure Python on local .pkl — as expected
+vector_retrieve       1–3s     Bedrock retrieve() → Pinecone round-trip
+synthesise            5–15s    invoke_model() with ~2000 token prompt
+
+Total pipeline time:  ~41.66s  (target was <30s)
+```
+
+Agent 1 (signal_monitor_node) is the dominant bottleneck at 28s.
+Root cause: Bedrock Agent infrastructure adds session initialisation +
+Lambda cold start on top of the actual GDELT query time.
+
+Week 3 fix: Step Functions parallel execution — run Agent 1 and Agent 2
+knowledge graph/temporal retrieval in parallel (both are independent).
+Estimated saving: ~15s off total pipeline time.
+
+##### Errors Surfaced (AWS payment pending — likely cause)
+Two runs produced malformed/empty Bedrock responses:
+- **Run 2 (Red Sea)** — `ContextSynthesiser failed: Expecting ':' delimiter`
+  Claude returned malformed JSON — partial/throttled Bedrock response
+- **Run 5 (Niger)** — `signal_monitor_node failed: Expecting value: line 1 column 1`
+  Completely empty response body — Bedrock call blocked before returning
+
+Run 4 (Wagner) succeeded at `signal_confidence: 0.75` in the same session,
+confirming pipeline code is correct. Errors are AWS-side throttling, not bugs.
+Re-run after payment clears to verify.
+
+##### Git Commits
+```
+42c73c0 — "Day 9: LangSmith tracing enabled — bottleneck identified"
+50f5a2b — "Restore routing threshold to 0.4 for production"
+```
+
+---
+
+#### DAY 10 — Evaluation + Scoring Calibration — COMPLETE (2026-04-21)
+
+##### What Was Done
+Re-ran all 5 test queries through the pipeline with routing threshold lowered to
+0.05 to force Agent 2 to run on all queries regardless of signal confidence.
+Objective: calibrate thresholds and identify weakest components before Week 3.
+
+##### 5-Query Evaluation Results
+
+| # | Query | A1 conf | GDELT events | A2 conf | Graph rels | Status |
+|---|-------|---------|--------------|---------|------------|--------|
+| 1 | Mali / JNIM insurgency | 0.1 | 0 | 0.30 | 36 | Clean — both agents ran |
+| 2 | Red Sea / Houthi shipping | 0.1 | 0 | 0.10 | 1 | Out-of-scope — no KB/graph coverage |
+| 3 | Drone / UAV Sahel | 0.1 | 0 | 0.32 | **55** | Highest graph retrieval across all runs |
+| 4 | Wagner Group Africa | **0.75** | **13** | **0.52** | 6 (precise) | Best overall — Wagner nodes fire correctly |
+| 5 | Niger 2023 coup | 0.1 | 0 | 0.45 | 12 | A1 empty response error (reproducible) |
+
+##### Calibration Findings
+
+**Vector score threshold (0.65):**
+Zero chunks returned above 0.65 across all 5 queries and both Day 9 and Day 10 runs.
+Root cause: KB contains only 6 documents, all Sahel-scoped. Titan Embeddings v2
+cosine similarity scores for this small corpus are not reaching 0.65 on any query.
+Decision: lower threshold to 0.4 in Week 3 after KB enrichment via MCP server adds
+more documents. Do not lower yet — with 6 docs, 0.4 may introduce noise.
+The vector channel is effectively inactive until the KB grows.
+
+**Routing threshold (0.4):**
+Queries 1, 2, 3, 5 all returned `signal_confidence: 0.1` (GDELT gap / throttle).
+With the production threshold of 0.4, Agent 2 would be skipped for all of these —
+even though Agent 2 produced useful output on Queries 1, 3, and 5 via the graph
+and temporal channels (which are independent of GDELT signal quality).
+Decision: lower routing threshold to 0.1 for production.
+Rationale: `signal_confidence: 0.1` is the base score (no events found), not a
+failure state. Agent 2 should always run unless Agent 1 hard-errors. The graph
+and temporal channels are always populated for Sahel queries regardless of GDELT.
+
+**Query 4 (Wagner) is the only query where all components behaved as designed:**
+- GDELT returned real events (13) → `signal_confidence: 0.75`
+- Graph returned 6 precise Wagner-specific relationships
+- `context_confidence: 0.52` — highest across all Sahel-scoped queries
+- Confirms: when GDELT data is available, the full pipeline functions correctly
+
+**Query 2 (Red Sea / Houthi) is a known out-of-scope query:**
+- Knowledge graph has zero Red Sea / Yemen / Houthi nodes
+- Only 1 graph relationship returned (UN/Mali — irrelevant)
+- `context_confidence: 0.1` — correct self-assessment: no relevant context available
+- Historian correctly redirected to external sources (UKMTO, IMB, CENTCOM)
+- This is expected behaviour, not a bug. KB and graph are Sahel-scoped by design.
+
+**Query 5 (Niger coup) Agent 1 error is reproducible:**
+`signal_monitor_node failed: Expecting value: line 1 column 1 (char 0)`
+Same error appeared in Day 9 Run 4 for the same query. Empty response body from
+Bedrock Agent — not random throttling. Likely cause: query length or specific
+phrasing triggers a Bedrock Agent session issue. To investigate in Week 3.
+
+##### Threshold Decisions for Week 3
+
+| Parameter | Day 9 value | Day 10 finding | Week 3 value |
+|-----------|-------------|----------------|--------------|
+| Routing threshold | 0.4 | Blocks valid Agent 2 runs | **0.1** |
+| Vector score threshold | 0.65 | No chunks returned (KB too small) | **0.65 until KB grows, then 0.4** |
+| Test threshold | 0.05 | Working — restore before Week 3 | **Restore to 0.1** |
+
+##### Graph Channel Performance by Query
+The graph channel is the most reliable channel across all queries:
+```
+Query 3 (Drone/UAV Sahel)   — 55 relationships  broadest Sahel context
+Query 1 (Mali/JNIM)         — 36 relationships  strong Mali-specific context
+Query 4 (Wagner Africa)     —  6 relationships  sparse but maximally precise
+Query 5 (Niger coup)        — 12 relationships  Niger border + actor nodes
+Query 2 (Red Sea/Houthi)    —  1 relationship   correct — no relevant nodes exist
+```
+The graph fires well for Sahel queries. Query 4's 6 relationships outperformed
+Query 3's 55 in synthesis quality — precision beats volume for the synthesiser.
+
+##### Week 3 Pre-requisites Confirmed
+- [x] Both agents running end-to-end
+- [x] Routing threshold calibrated: change 0.4 → 0.1 before Week 3
+- [x] Vector threshold: keep 0.65 until KB enrichment adds documents
+- [x] Reproducible error on Niger query identified — investigate Week 3
+- [x] KB vector channel inactive (0 chunks) — MCP KB enrichment is Week 3 priority
+- [ ] Routing threshold not yet updated in pipeline.py — do before Week 3 commit
+- [ ] Synthesiser JSON parse error (Red Sea) — add robust extraction in Week 3
+
+##### Files Changed on Day 10
+```
+orchestration/pipeline.py   threshold 0.4 → 0.05 (TEMPORARY — restore to 0.1 before Week 3)
+test_pipeline.py             analyst_query cycled through 5 queries, restored to Query 1
+```

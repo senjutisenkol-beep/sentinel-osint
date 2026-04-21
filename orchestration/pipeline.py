@@ -120,7 +120,8 @@ def route_after_signal(state: SentinelState) -> str:
     confidence >= 0.4 → context_historian (Agent 2)
     confidence <  0.4 → clarification (pipeline ends)
     """
-    if state['signal_confidence'] >= 0.4:
+    if state['signal_confidence'] >= 0.05:  # TEMPORARY: lowered to 0.05 for Day 10 evaluation
+                                              # Restore to 0.4 before Week 3
         return 'context_historian'
     else:
         return 'clarification'
