@@ -117,11 +117,12 @@ def route_after_signal(state: SentinelState) -> str:
     Decides which node runs after Agent 1.
     Returns a string that matches a key in add_conditional_edges() below.
 
-    confidence >= 0.4 → context_historian (Agent 2)
-    confidence <  0.4 → clarification (pipeline ends)
+    confidence >= 0.1 → context_historian (Agent 2)
+    confidence <  0.1 → clarification (pipeline ends)
     """
-    if state['signal_confidence'] >= 0.05:  # TEMPORARY: lowered to 0.05 for Day 10 evaluation
-                                              # Restore to 0.4 before Week 3
+    if state['signal_confidence'] >= 0.1:  # Production threshold — 0.1 allows Agent 2 to run
+                                             # when GDELT finds nothing (base score) while still
+                                             # blocking hard errors. Restored after Day 10 evaluation.
         return 'context_historian'
     else:
         return 'clarification'
