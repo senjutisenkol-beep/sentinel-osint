@@ -51,55 +51,114 @@ from agents.context_historian.synthesizer import synthesise
 def signal_monitor_node(state: SentinelState) -> dict:
     """
     Agent 1 — Signal Monitor.
-    Invokes the Bedrock Agent (OPABTSHSPN) which calls the
-    sentinel-signal-monitor-gdelt Lambda to fetch live GDELT events.
 
-    Reads:  session_id, analyst_query
-    Writes: gdelt_events, signal_confidence, signal_summary, errors
+    Architecture (production-grade):
+        Analyst query
+            → invoke_agent() — Bedrock Agent OPABTSHSPN
+                → Claude transforms query into smart keywords
+                → Calls Lambda tool (sentinel-signal-monitor-gdelt)
+                    → Lambda calls MCP server query_all_sources()
+                        → GDELT + NewsAPI + ReliefWeb merged feed
+                → Returns structured JSON with confidence score
+
+    Why Bedrock Agent instead of direct Python call:
+        Claude inside the Bedrock Agent reads the analyst's natural
+        language query and intelligently decides what keywords to
+        search for — understanding context, synonyms, and domain
+        terminology. A simple string split cannot do this.
+        The MCP server handles multi-source data merging.
+        Bedrock handles intelligent query transformation.
+        Both layers are needed.
+
+    Reads from state:
+        session_id:    unique ID for this pipeline run
+        analyst_query: raw natural language question from analyst
+
+    Writes to state:
+        gdelt_events:      merged event list from all three sources
+        signal_confidence: corroboration-based score (not event count)
+        signal_summary:    prose summary for Agent 2 query enrichment
+        errors:            list of error strings if something failed
     """
+
+    # Create the Bedrock Agent Runtime client.
+    # bedrock-agent-runtime is used for invoking Bedrock Agents and
+    # querying Knowledge Bases. Different from bedrock-runtime which
+    # is for direct model calls (used in synthesiser.py).
     client = boto3.client('bedrock-agent-runtime', region_name='us-east-1')
 
     try:
+        # invoke_agent sends the analyst's natural language query to
+        # the Bedrock Agent. Claude inside the agent reads the query,
+        # reasons about what keywords to search for, and calls the
+        # Lambda tool via the Action Group mechanism.
+        #
+        # agentId:      OPABTSHSPN — our Signal Monitor agent in Bedrock
+        # agentAliasId: TSTALIASID — test alias pointing to latest draft
+        # sessionId:    ties this call to the current pipeline run session
+        # inputText:    the raw analyst query — Claude transforms this
         response = client.invoke_agent(
-            agentId='OPABTSHSPN',
+            agentId     ='OPABTSHSPN',
             agentAliasId='TSTALIASID',
-            sessionId=state['session_id'],
-            inputText=state['analyst_query']
+            sessionId   = state['session_id'],
+            inputText   = state['analyst_query']
         )
 
-        # Bedrock streams response in chunks — accumulate into one string
+        # Bedrock streams the response back in chunks rather than one
+        # payload. We loop through every streaming event and accumulate
+        # the text into a single string called raw.
         raw = ''
         for events in response['completion']:
             if 'chunk' in events:
+                # Each chunk arrives as raw bytes — decode to UTF-8 string
                 raw += events['chunk']['bytes'].decode('utf-8')
 
-        # Agent 1 embeds JSON inside prose text — extract it by tracking braces
-        json_start = raw.find('{')
+        # The Bedrock Agent embeds a JSON object inside its text response.
+        # We cannot use json.loads(raw) directly because there may be
+        # surrounding prose text from Claude's reasoning.
+        # Instead we find the JSON block by tracking opening and closing
+        # braces — when brace_count returns to 0 we have found the full
+        # outermost JSON object.
+        json_start = raw.find('{')   # Position of first opening brace
         brace_count = 0
         json_end = json_start
 
         for i in range(json_start, len(raw)):
             if raw[i] == '{':
-                brace_count += 1
+                brace_count += 1   # Going deeper into nested JSON
             elif raw[i] == '}':
-                brace_count -= 1
+                brace_count -= 1   # Coming back out
             if brace_count == 0:
+                # brace_count back to zero means we closed the outermost
+                # JSON object — this is where the block ends
                 json_end = i + 1
                 break
 
+        # Slice out just the JSON block and parse it into a Python dict
         json_block = raw[json_start:json_end]
         parsed = json.loads(json_block)
 
-        # Return only changed fields — LangGraph merges into full state
+        # The Lambda now returns a richer response from the MCP server:
+        # events:           merged list from GDELT + NewsAPI + ReliefWeb
+        # confidence_score: corroboration-based (0.7 = two sources agree)
+        # signal_summary:   pre-built prose with source counts + top events
+        #
+        # signal_summary is passed to Agent 2 which uses the first 300
+        # characters for query expansion in vector retrieval — the richer
+        # this summary is, the better the KB chunks Agent 2 will find.
         return {
             'gdelt_events':      parsed.get('events', []),
             'signal_confidence': parsed.get('confidence_score', 0.1),
-            'signal_summary':    raw,
+            'signal_summary':    parsed.get('signal_summary', raw),
             'errors':            []
         }
 
     except Exception as e:
-        # Safe fallback — pipeline continues, error logged in state
+        # If anything fails — network error, Bedrock throttle, malformed
+        # JSON — return safe fallback values so the pipeline can still
+        # route correctly. The error is logged in state errors list.
+        # signal_confidence 0.1 is the base score — above the 0.1
+        # routing threshold so Agent 2 still runs even on Agent 1 failure.
         return {
             'gdelt_events':      [],
             'signal_confidence': 0.1,

@@ -31,8 +31,9 @@ load_dotenv()
 from mcp.server.fastmcp import FastMCP
 
 # Import our three data clients
-from agents.mcp_server.gdelt_client    import query_gdelt
-from agents.mcp_server.news_client     import query_newsapi
+from agents.mcp_server.gdelt_client      import query_gdelt
+from agents.mcp_server.news_client       import query_newsapi
+from agents.mcp_server.reliefweb_client  import query_reliefweb
 
 
 # ── CREATE THE MCP SERVER INSTANCE ───────────────────────────────────────────
@@ -119,19 +120,11 @@ def tool_query_reliefweb(query: str, country: str = '') -> str:
         JSON string containing list of report dicts and a summary count.
         Currently returns empty list — appname approval pending.
     """
-    # ── STUB: ReliefWeb appname approval pending ──────────────────────────────
-    # Appname 'senjutisen-geoint-research-x7k2' submitted and under review.
-    # Replace this stub with the real reliefweb_client call when approved:
-    #
-    #   from agents.mcp_server.reliefweb_client import query_reliefweb
-    #   reports = query_reliefweb(query=query, country=country)
-    #
-    # ─────────────────────────────────────────────────────────────────────────
+    reports = query_reliefweb(query=query, country=country)
     return json.dumps({
         'source':       'ReliefWeb',
-        'report_count': 0,
-        'reports':      [],
-        'status':       'pending_appname_approval'
+        'report_count': len(reports),
+        'reports':      reports
     }, indent=2)
 
 
@@ -176,8 +169,7 @@ def query_all_sources(
     # Call NewsAPI — news articles
     news_articles = query_newsapi(query=news_query, region=region, days=days)
 
-    # ReliefWeb stub — returns empty list until appname approved
-    reliefweb_reports = []
+    reliefweb_reports = query_reliefweb(query=news_query, country=region)
 
     # ── Step 2: Normalise all results to a common schema ─────────────────────
     # Each source returns dicts with different field names.

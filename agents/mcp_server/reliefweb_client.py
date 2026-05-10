@@ -21,11 +21,11 @@ from typing import List  # Type hint for return annotation
 # ── CONSTANTS ─────────────────────────────────────────────────────────────────
 
 # ReliefWeb API base URL — v1 is the stable production endpoint
-RELIEFWEB_URL = 'https://api.reliefweb.int/v1/reports'
+RELIEFWEB_URL = 'https://api.reliefweb.int/v2/reports'
 
 # App name is required by ReliefWeb to identify the calling application
 # It is not a secret — just a label for their logs
-APP_NAME = 'sentinel-osint'
+APP_NAME = 'senjutisen-geoint-research-x7k2NBxz56heKW29d'
 
 # Maximum reports to return
 MAX_REPORTS = 10
@@ -52,10 +52,6 @@ def query_reliefweb(query: str, country: str = '') -> List[dict]:
     # ReliefWeb uses a POST request with a JSON body rather than URL params
     # This allows complex queries — field selection, sorting, filtering
     payload = {
-
-        # appname identifies your application in ReliefWeb's logs
-        # Required field — without it the API may throttle or reject requests
-        'appname': APP_NAME,
 
         # query searches across title, body, and source fields
         'query': {
@@ -99,7 +95,7 @@ def query_reliefweb(query: str, country: str = '') -> List[dict]:
 
     try:
         response = requests.post(
-            RELIEFWEB_URL,
+            f'{RELIEFWEB_URL}?appname={APP_NAME}',
             json=payload,      # Send payload as JSON body
             timeout=15         # ReliefWeb can be slower than other APIs
         )

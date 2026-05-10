@@ -5,9 +5,12 @@
 # Run from the project root with: python test_pipeline.py
 # ─────────────────────────────────────────────────────────────────────────────
 
+import sys
 import uuid
 import warnings
 from datetime import datetime, timezone
+
+sys.stdout.reconfigure(encoding='utf-8')
 
 # Suppress the Pydantic V1 / Python 3.14 compatibility warning —
 # cosmetic only, does not affect pipeline behaviour
