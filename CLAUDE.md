@@ -1342,6 +1342,351 @@ Query 3's 55 in synthesis quality — precision beats volume for the synthesiser
 
 ##### Files Changed on Day 10
 ```
-orchestration/pipeline.py   threshold 0.4 → 0.05 (TEMPORARY — restore to 0.1 before Week 3)
-test_pipeline.py             analyst_query cycled through 5 queries, restored to Query 1
+orchestration/pipeline.py            threshold 0.4 → 0.05 (TEMPORARY — restore to 0.1 before Week 3)
+test_pipeline.py                     analyst_query cycled through 5 queries, restored to Query 1
+agents/context_historian/retriever.py vector score threshold 0.65 → 0.50 (committed da1a503)
 ```
+
+##### Additional Finding — Vector Threshold
+After evaluation, `score >= 0.65` was confirmed to return 0 chunks across all 5 queries.
+Threshold lowered to `0.50` in `retriever.py` and committed (da1a503).
+Docstring on `vector_retrieve()` updated to match.
+If 0.50 still returns 0 chunks in Week 3 testing, lower to 0.40 after KB enrichment adds documents.
+
+##### Day 10 Git Commits
+```
+d87610f — "Day 9-10: LangSmith tracing + evaluation complete"
+da1a503 — "Lower vector score threshold 0.65 → 0.50 (Day 10 evaluation)"
+```
+
+---
+
+#### DAY 11 — MCP Server Operational + Lambda Upgrade — COMPLETE (2026-05-10)
+
+##### What Was Built
+- [x] ReliefWeb client activated — appname `senjutisen-geoint-research-x7k2NBxz56heKW29d` approved
+- [x] `agents/mcp_server/reliefweb_client.py` — API endpoint updated v1→v2, appname moved from
+      POST body to URL query parameter (`?appname=APP_NAME`)
+- [x] `agents/mcp_server/server.py` — ReliefWeb stub replaced with live `query_reliefweb()` calls
+      in both `tool_query_reliefweb()` and `query_all_sources()`. All three sources now active.
+- [x] `agents/signal_monitor/lambda_handler.py` — rewritten to call MCP server
+      `query_all_sources()` instead of `gdelt_query.run_query()`. Reads parameters from
+      OpenAPI `requestBody.content.application/json.properties` format. Returns OpenAPI
+      `apiPath / httpStatusCode / responseBody.application/json` envelope.
+- [x] `orchestration/pipeline.py` — `signal_monitor_node()` rewritten with full architecture
+      comments. `signal_summary` now read from `parsed.get('signal_summary', raw)` — uses
+      the pre-built prose from Lambda rather than the raw Bedrock stream text.
+- [x] `orchestration/state.py` — 5 Agent 3 fields added:
+      `threat_level`, `threat_score`, `threat_rationale`, `key_indicators`, `threat_confidence`
+- [x] `test_pipeline.py` — Agent 3 defaults added to `initial_state`;
+      `sys.stdout.reconfigure(encoding='utf-8')` added for Windows console.
+- [x] Lambda redeployed — Linux manylinux2014_x86_64 binaries, 4.8 MB (down from 47 MB)
+
+##### Three Deployment Errors Found and Fixed
+
+Error 1 — ReliefWeb 410 Gone:
+  `https://api.reliefweb.int/v1/reports` permanently retired.
+  Fix: updated `RELIEFWEB_URL` to `/v2/reports`.
+
+Error 2 — ReliefWeb 400 Bad Request:
+  v2 API requires `appname` as URL query parameter, not in POST body.
+  Fix: removed `'appname': APP_NAME` from payload dict;
+  changed `requests.post(RELIEFWEB_URL, ...)` to
+  `requests.post(f'{RELIEFWEB_URL}?appname={APP_NAME}', ...)`.
+
+Error 3 — Lambda Windows binaries crash on Amazon Linux:
+  `pydantic_core._pydantic_core` not found — `mcp` depends on `pydantic` which
+  has a compiled Rust extension. Plain `pip install --target` on Windows
+  downloaded Windows `.pyd` DLL, incompatible with Lambda's Linux runtime.
+  Also bundled `pywin32` (Windows-only, irrelevant on Lambda).
+  Fix: rebuilt with `--platform manylinux2014_x86_64 --only-binary=:all:`.
+  ZIP shrank from 18 MB → 4.8 MB.
+
+Error 4 — Lambda response envelope format mismatch:
+  `APIPath in Lambda response doesn't match input`
+  New `lambda_handler.py` used function-calling envelope (`functionResponse.TEXT`).
+  Bedrock Agent was configured with OpenAPI schema action group, which requires:
+  `apiPath + httpMethod + httpStatusCode + responseBody.application/json.body`.
+  Fix: changed parameter extraction and response envelope to OpenAPI format.
+
+##### End-to-End Test Result (2026-05-10) — Best Run to Date
+```
+Query:              Find conflict events in Mali regarding JNIM insurgency
+Signal confidence:  0.5  (one source, >5 events — GDELT returned 10 events)
+GDELT events:       10
+Graph rels:         54
+Temporal events:    15
+Vector chunks:      0  (KB still small)
+context_confidence: 0.62  (highest across all runs)
+Errors:             []
+```
+
+Historian summary excerpt:
+> "As of late April to early May 2026, Mali is experiencing a major escalation in armed
+> conflict, with coordinated attacks reported across Bamako, Mopti, Gao, Kati, and Kidal.
+> The violence, which intensified around 25 April 2026, has disrupted key supply routes,
+> caused fuel and food shortages, and triggered significant civilian displacement..."
+
+##### MCP Source Status
+```
+GDELT:      active — live 15-min snapshots
+NewsAPI:    active — 7-day English news search
+ReliefWeb:  active — UN OCHA situation reports (v2 API, appname approved)
+```
+
+##### Files Changed
+```
+agents/mcp_server/reliefweb_client.py   MODIFIED — v2 endpoint, appname in URL
+agents/mcp_server/server.py             MODIFIED — ReliefWeb stub → live calls
+agents/signal_monitor/lambda_handler.py MODIFIED — MCP server integration,
+                                                    OpenAPI envelope format
+orchestration/pipeline.py               MODIFIED — signal_monitor_node() with
+                                                    architecture comments
+orchestration/state.py                  MODIFIED — 5 Agent 3 fields added
+test_pipeline.py                        MODIFIED — Agent 3 defaults, UTF-8 fix
+```
+
+##### Day 11 Git Commit
+```
+a9781c9 — "Day 11 complete: ReliefWeb activated, Lambda upgraded to MCP merged feed"
+```
+
+##### Architecture Note — Lambda as MCP Client (Not MCP Subprocess)
+The Lambda does NOT start `server.py` as a subprocess — it imports and calls
+`query_all_sources()` directly as a Python function. The `@mcp.tool()` decorators
+and `FastMCP` instance are present but the MCP server loop (`mcp.run()`) is never
+called. This is intentional: Lambda is a single-invocation function, not a
+persistent process. The MCP server pattern is preserved for local testing and
+future HTTP+SSE transport upgrade (Week 4), but inside Lambda the clients are
+called as plain Python functions.
+
+---
+
+## WEEK 3 PLAN — Multi-Agent Orchestration
+
+### Overview
+Week 3 is the core build week. The two-agent pipeline becomes a five-agent pipeline.
+Three new components are added: MCP server (live data + KB enrichment), Agent 3
+(Threat Analyst), Agent 4 (Red Team). Step Functions orchestrates the full pipeline.
+Output: a structured Flash Report JSON produced at the end of every run.
+
+### Pre-Week 3 Checklist (do before Day 11)
+- [x] Restore routing threshold: `>= 0.05` → `>= 0.1` in `orchestration/pipeline.py` (commit a53bbcf)
+- [ ] Confirm vector threshold `0.50` returns chunks (re-run Query 4 Wagner after KB enrichment)
+- [ ] Fix Agent 1 empty response on Niger query (investigate Bedrock Agent session issue)
+
+### Target Architecture
+
+```
+Input: analyst query
+         │
+         ▼
+Step Functions State Machine
+         │
+    ┌────┴─────────────────────┐
+    │  PARALLEL                │
+    │  Agent 1 (Signal Monitor)│  ← existing — GDELT Lambda
+    │  Graph + Temporal retrieval  ← run in parallel with A1 (Week 3 latency fix)
+    └────┬─────────────────────┘
+         │  merge state
+         ▼
+    Agent 2 (Context Historian)  ← existing — KB vector + synthesiser
+         │
+         ▼
+    Agent 3 (Threat Analyst)     ← NEW — Bayesian scoring
+         │
+    CHOICE: threat_level == HIGH?
+         ├── YES → Agent 4 (Red Team)  ← NEW — adversarial challenge
+         └── NO  → skip
+         │
+         ▼
+    Flash Report JSON → S3 + CloudWatch
+```
+
+### Week 3 Daily Plan
+
+#### Day 11 — MCP Server (sentinel-geopolitical-mcp)
+Build a Model Context Protocol server that sits in front of GDELT, ACLED, and NewsAPI.
+
+**Job 1 — Real-time feed per pipeline run:**
+```
+pipeline.invoke() → MCP server → GDELT + ACLED + NewsAPI → merged event list → Agent 1
+```
+Replaces the direct Lambda GDELT call with a richer multi-source feed.
+
+**Job 2 — Weekly KB enrichment (automated):**
+```
+Cron (weekly) → MCP server pulls latest data → uploads to S3 → triggers Bedrock KB sync
+```
+After this, the KB never needs manual curation. New documents flow in automatically.
+
+Key decisions:
+- MCP server runs as a Lambda (or local server for testing) — same pattern as existing Lambda
+- ACLED requires API key — add `ACLED_API_KEY` to `.env` and `.env.example`
+- NewsAPI adds English-language news sources GDELT misses
+- KB enrichment trigger: EventBridge cron rule → Lambda → S3 upload → `start_ingestion_job()`
+
+#### Day 12 — Agent 3: Threat Analyst
+Bayesian scoring agent. Reads Agent 1 signal + Agent 2 historical context from
+`SentinelState` and returns a structured threat assessment.
+
+**Pre-work already done (Day 11 session):**
+- `orchestration/state.py` — 5 Agent 3 fields added:
+  `threat_level`, `threat_score`, `threat_rationale`, `key_indicators`, `threat_confidence`
+- `test_pipeline.py` — Agent 3 defaults added to `initial_state`
+
+**Output schema:**
+```json
+{
+  "threat_level": "HIGH | MEDIUM | LOW | UNKNOWN",
+  "threat_score": 0.0–1.0,
+  "threat_rationale": "...",
+  "key_indicators": ["...", "..."],
+  "threat_confidence": "HIGH | MEDIUM | LOW"
+}
+```
+
+**Scoring approach (Asymmetric Bayesian weighting from Week 1 decision):**
+```
+negative Goldstein → increases threat score (full weight)
+positive Goldstein → reduces threat score × 0.5 (half weight)
+signal_confidence  → scales overall score (low confidence = wider uncertainty band)
+context_confidence → weights historical context contribution
+```
+
+Agent 3 uses `invoke_model` directly (same pattern as synthesiser — no tool calls needed).
+SentinelState fields already added — no state.py changes needed on Day 12.
+
+#### Day 13 — Agent 4: Red Team
+Adversarial agent. Runs only when `threat_level == HIGH`. Receives the full
+SentinelState and Agent 3's assessment, and returns counter-evidence and a
+revised probability.
+
+**Purpose:** prevent Agent 3 from over-indexing on incomplete signal data.
+Challenges assumptions, surfaces alternative explanations, reduces false positives.
+
+**Output schema:**
+```json
+{
+  "counter_evidence": ["...", "..."],
+  "revised_threat_score": 0.0–1.0,
+  "revised_confidence": 0.0–1.0,
+  "challenge_summary": "..."
+}
+```
+
+Add 3 new fields to `SentinelState`:
+```python
+counter_evidence:      List[str]
+revised_threat_score:  float
+red_team_summary:      str
+```
+
+Step Functions CHOICE state routes to Red Team only if `threat_level == HIGH`.
+Both branches converge at Flash Report generation.
+
+#### Day 14 — Step Functions State Machine
+Replace the current LangGraph pipeline with a Step Functions Express Workflow
+that orchestrates all agents with proper parallelism and error handling.
+
+**State machine structure:**
+```
+StartState
+    │
+    ▼
+Parallel State ──────────────────────────────────────────┐
+  Branch 1: signal_monitor_node (Agent 1 + GDELT Lambda)  │
+  Branch 2: graph_retrieve + temporal_retrieve            │
+    (run concurrently — independent of Agent 1)           │
+    └──────────────────────────────────────────────────────┘
+    │  merge outputs into SentinelState
+    ▼
+context_historian_node (Agent 2)
+    │
+    ▼
+threat_analyst_node (Agent 3)
+    │
+    ▼
+Choice State: threat_score >= 0.7?
+    ├── YES → red_team_node (Agent 4) → Flash Report
+    └── NO  → Flash Report directly
+    │
+    ▼
+Flash Report Lambda → S3 + CloudWatch
+```
+
+**Latency target:** < 30s total (currently ~41s)
+Parallelising Agent 1 + graph/temporal retrieval saves ~12–15s.
+Lambda provisioned concurrency on `sentinel-signal-monitor-gdelt` eliminates cold start (~3–5s).
+
+**Step Functions adds:**
+- Visual state machine diagram → instant architecture doc for README
+- Built-in retry logic on Lambda failures (fixes Niger empty response issue)
+- Error state handling — pipeline never silently fails
+
+#### Day 15 — Flash Report + End-to-End Test
+Wire all agents into a single Flash Report JSON output. Full pipeline test.
+
+**Flash Report schema:**
+```json
+{
+  "report_id": "uuid",
+  "generated_at": "ISO timestamp",
+  "analyst_query": "...",
+  "threat_level": "HIGH | MEDIUM | LOW | UNKNOWN",
+  "threat_score": 0.0–1.0,
+  "executive_summary": "...",
+  "signal_summary": "...",
+  "historical_context": "...",
+  "threat_rationale": "...",
+  "counter_evidence": ["..."],
+  "revised_threat_score": 0.0–1.0,
+  "gdelt_events": [...],
+  "confidence_scores": {
+    "signal": 0.0–1.0,
+    "context": 0.0–1.0,
+    "threat": 0.0–1.0
+  },
+  "data_gaps": ["..."]
+}
+```
+
+Flash Report saved to `s3://sentinel-osint-knowledge-base/reports/<report_id>.json`.
+CloudWatch custom metric emitted per run: `threat_score`, `total_latency`, `gdelt_events_found`.
+
+**Week 3 exit criteria:**
+- [x] MCP server running — GDELT + NewsAPI + ReliefWeb merged feed (ACLED replaced — paid only)
+- [ ] KB enrichment automated — weekly cron → S3 → Bedrock sync
+- [ ] All 4 agents wired into Step Functions state machine
+- [ ] Flash Report JSON produced for 3 test queries
+- [ ] Step Functions visual graph committed to README
+- [ ] Total pipeline latency < 30s (parallel execution + provisioned concurrency)
+- [ ] Niger query Agent 1 error fixed (Step Functions retry handles it)
+- [x] Routing threshold restored to 0.1 in pipeline.py (commit a53bbcf)
+
+### New SentinelState Fields for Week 3
+```python
+# Agent 3 — Threat Analyst (new)
+threat_level:      str        # HIGH / MEDIUM / LOW / UNKNOWN
+threat_score:      float      # 0.0–1.0 Bayesian weighted score
+threat_rationale:  str        # prose explanation
+
+# Agent 4 — Red Team (new, only populated if threat_level == HIGH)
+counter_evidence:      List[str]   # adversarial challenges to Agent 3
+revised_threat_score:  float       # Agent 4 revised score
+red_team_summary:      str         # prose challenge summary
+
+# Flash Report (new)
+flash_report:      dict        # full structured output written to S3
+```
+
+### Key Architecture Decisions Carried from Week 1–2
+
+| Decision | Rationale |
+|----------|-----------|
+| LangGraph → Step Functions for orchestration | Full visibility into routing, built-in retry, visual diagram |
+| `invoke_model` for Agents 3 + 4 (not `invoke_agent`) | No tool calls needed — stateless reasoning only, lower latency |
+| Asymmetric Goldstein weighting in Agent 3 | Negative events increase threat score; positive events reduce at 0.5x weight |
+| Red Team runs on HIGH only | Cost + latency trade-off — adversarial challenge not needed for LOW/MEDIUM |
+| MCP server for KB enrichment | KB never needs manual curation after Week 3 seed |
+| Provisioned concurrency on GDELT Lambda | Eliminates 3–5s cold start — single highest-value latency fix |

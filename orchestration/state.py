@@ -25,3 +25,10 @@ class SentinelState(TypedDict):
     temporal_context:   List[dict]
     historian_summary:  str
     context_confidence: float
+
+    # Agent 3 — Threat Analyst
+    threat_level:      str
+    threat_score:      float
+    threat_rationale:  str
+    key_indicators:    List[str]
+    threat_confidence: str

@@ -43,6 +43,13 @@ initial_state = {
     'vector_context':     [],
     'historian_summary':  '',
     'context_confidence': 0.0,
+
+    # Agent 3 defaults — overwritten by threat_analyst_node
+    'threat_level':      '',
+    'threat_score':      0.0,
+    'threat_rationale':  '',
+    'key_indicators':    [],
+    'threat_confidence': '',
 }
 
 # ── Run pipeline ──────────────────────────────────────────────────────────────
