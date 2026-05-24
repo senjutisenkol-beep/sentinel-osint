@@ -42,6 +42,7 @@ from agents.context_historian.retriever import (
 # The synthesiser calls Claude directly via bedrock-runtime to produce
 # a single intelligence summary and a confidence score.
 from agents.context_historian.synthesizer import synthesise
+from agents.threat_analyst.threat_analyst import assess_threat
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +231,33 @@ def context_historian_node(state: SentinelState) -> dict:
     }
 
 
+def threat_analyst_node(state: SentinelState) -> dict:
+    """
+    Agent 3 — Threat Analyst.
+
+    Reads signal and context outputs from Agents 1 and 2,
+    calculates a weighted evidence score in Python, then
+    calls Claude to make the categorical threat judgment.
+
+    Why invoke_model() not invoke_agent():
+        All data is already in SentinelState — no tools needed.
+        This is a pure reasoning step, not an orchestration step.
+
+    Reads:  analyst_query, signal_confidence, context_confidence,
+            gdelt_events, historian_summary
+    Writes: threat_level, threat_score, threat_rationale,
+            key_indicators, threat_confidence
+    """
+    result = assess_threat(
+        analyst_query      = state['analyst_query'],
+        signal_confidence  = state['signal_confidence'],
+        context_confidence = state['context_confidence'],
+        gdelt_events       = state['gdelt_events'],
+        historian_summary  = state['historian_summary']
+    )
+    return result
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PIPELINE BUILDER
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,6 +276,7 @@ def build_pipeline():
     # Register nodes
     graph.add_node('signal_monitor',    signal_monitor_node)
     graph.add_node('context_historian', context_historian_node)
+    graph.add_node('threat_analyst',    threat_analyst_node)
 
     # Entry point
     graph.set_entry_point('signal_monitor')
@@ -262,8 +291,8 @@ def build_pipeline():
         }
     )
 
-    # After Agent 2 → END for now. Week 3: replace with 'threat_analyst'
-    graph.add_edge('context_historian', END)
+    graph.add_edge('context_historian', 'threat_analyst')
+    graph.add_edge('threat_analyst', END)
 
     return graph.compile()
 

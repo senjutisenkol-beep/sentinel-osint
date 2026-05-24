@@ -111,6 +111,18 @@ print(f"\nContext confidence: {result['context_confidence']}")
 print(f"\nHistorian summary:")
 print(result['historian_summary'])
 
+print('\n' + '─'*60)
+print('AGENT 3 — THREAT ANALYST')
+print('─'*60)
+print(f'Threat level:      {result["threat_level"]}')
+print(f'Threat score:      {result["threat_score"]}')
+print(f'Threat confidence: {result["threat_confidence"]}')
+print(f'\nKey indicators:')
+for ind in result['key_indicators']:
+    print(f'  • {ind}')
+print(f'\nThreat rationale:')
+print(result['threat_rationale'])
+
 # ── Pass/fail ─────────────────────────────────────────────────────────────────
 print('\n' + '='*60)
 agent1_ok = result['signal_confidence'] > 0.0
