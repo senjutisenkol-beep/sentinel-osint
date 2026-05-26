@@ -64,35 +64,47 @@ def calculate_weighted_score(
     goldstein_component = 0.0
     top_events = []
 
-    if gdelt_events:
-        for event in gdelt_events:
-            g = float(event.get('goldstein_scale', 0.0))
+    # Split events into Goldstein-carrying and non-carrying
+    # Only GDELT provides Goldstein scores
+    # ReliefWeb and NewsAPI always return goldstein_scale=0.0
+    # Using total event count for uncertainty when most events
+    # have no Goldstein data produces misleading narrow bands
+    goldstein_events = [
+        e for e in gdelt_events
+        if float(e.get('goldstein_scale', 0.0)) != 0.0
+    ]
+    non_goldstein_events = [
+        e for e in gdelt_events
+        if float(e.get('goldstein_scale', 0.0)) == 0.0
+    ]
 
+    if goldstein_events:
+        for event in goldstein_events:
+            g = float(event.get('goldstein_scale', 0.0))
             if g < 0:
-                # Violent event — full weight pushes threat up
-                # g=-10 (max violence) → contribution=1.0
                 goldstein_component += abs(g) / 10.0
             elif g > 0:
-                # Cooperative event — half weight pulls threat down
                 goldstein_component -= (g / 10.0) * POSITIVE_GOLDSTEIN_DISCOUNT
 
-            # Collect for Claude's context
+        # Normalise by Goldstein-carrying count only
+        goldstein_component = (
+            W_GOLDSTEIN * goldstein_component / len(goldstein_events)
+        )
+
+        # Collect top events for Claude context
+        for event in goldstein_events:
             top_events.append({
-                'goldstein': g,
+                'goldstein': float(event.get('goldstein_scale', 0.0)),
                 'title':     event.get('title', 'Unknown')[:100],
                 'date':      event.get('date', 'unknown'),
                 'source':    event.get('data_source', 'unknown')
             })
 
-        # Normalise by event count — prevents many mild events
-        # from dominating a few severe ones
-        goldstein_component = (
-            W_GOLDSTEIN * goldstein_component / len(gdelt_events)
-        )
-
-        # Sort by absolute Goldstein value — most extreme first
         top_events.sort(key=lambda x: abs(x['goldstein']), reverse=True)
         top_events = top_events[:5]
+
+    # If no Goldstein events — Goldstein component stays 0.0
+    # and Claude will be told explicitly in the prompt
 
     # Combine all components
     weighted_score = base_score + signal_component + context_component + goldstein_component
@@ -100,27 +112,33 @@ def calculate_weighted_score(
     # Clamp to valid range
     weighted_score = max(0.0, min(1.0, weighted_score))
 
-    # Estimate uncertainty — more data = narrower interval
-    n_events  = len(gdelt_events)
+    # Use Goldstein-carrying event count for uncertainty
+    # Total event count is misleading when ReliefWeb dominates
+    n_goldstein = len(goldstein_events)
+    n_total     = len(gdelt_events)
+
+    # Count active channels
     n_sources = sum([
         1 if signal_confidence  > 0.2 else 0,
         1 if context_confidence > 0.3 else 0,
-        1 if n_events           > 0   else 0,
+        1 if n_goldstein        > 0   else 0,  # only if Goldstein data exists
     ])
 
-    if n_events >= 10 and n_sources == 3:
+    if n_goldstein >= 10 and n_sources == 3:
         uncertainty = 0.08
-    elif n_events >= 5 or n_sources == 2:
+    elif n_goldstein >= 5 or n_sources == 2:
         uncertainty = 0.15
-    elif n_events >= 1:
+    elif n_goldstein >= 1:
         uncertainty = 0.22
     else:
+        # No Goldstein data at all — very wide band regardless
+        # of how many ReliefWeb/NewsAPI events exist
         uncertainty = 0.30
 
     score_low  = max(0.0, weighted_score - uncertainty)
     score_high = min(1.0, weighted_score + uncertainty)
 
-    return weighted_score, score_low, score_high, top_events
+    return weighted_score, score_low, score_high, top_events, n_goldstein
 
 
 def build_threat_prompt(
@@ -132,7 +150,8 @@ def build_threat_prompt(
     signal_confidence:  float,
     context_confidence: float,
     historian_summary:  str,
-    n_events:           int
+    n_events:           int,
+    n_goldstein:        int
 ) -> str:
     """
     Build the prompt for Claude's threat level judgment.
@@ -148,6 +167,26 @@ def build_threat_prompt(
         ])
     else:
         events_text = '  No events with Goldstein data available.'
+
+    non_goldstein_count = n_events - n_goldstein
+    if n_goldstein == 0:
+        goldstein_warning = (
+            "\nWARNING: Zero events carry Goldstein scale data. "
+            "All events are from ReliefWeb or NewsAPI which do not "
+            "provide Goldstein scores. The 55% Goldstein weight "
+            f"contributed NOTHING to this score. The threat_score "
+            f"of {weighted_score:.2f} is based only on signal and "
+            "context confidence. Do NOT infer conflict intensity "
+            "from the absence of Goldstein data — this is a data "
+            "gap, not an information blackout."
+        )
+    else:
+        goldstein_warning = (
+            f"\n{n_goldstein} of {n_events} "
+            f"events carry Goldstein data. "
+            f"{non_goldstein_count} ReliefWeb/NewsAPI events "
+            f"contributed no Goldstein signal."
+        )
 
     prompt = f"""You are a senior geopolitical intelligence analyst.
 
@@ -166,6 +205,7 @@ Total events retrieved:                  {n_events}
 Most significant events by Goldstein scale
 (negative = destabilising/violent, positive = cooperative):
 {events_text}
+{goldstein_warning}
 
 ── HISTORICAL AND STRUCTURAL CONTEXT ───────────────────────────
 
@@ -216,11 +256,12 @@ def assess_threat(
     """
 
     # Step 1 — Calculate weighted score
-    weighted_score, score_low, score_high, top_events = calculate_weighted_score(
-        signal_confidence  = signal_confidence,
-        context_confidence = context_confidence,
-        gdelt_events       = gdelt_events
-    )
+    weighted_score, score_low, score_high, top_events, n_goldstein = \
+        calculate_weighted_score(
+            signal_confidence  = signal_confidence,
+            context_confidence = context_confidence,
+            gdelt_events       = gdelt_events
+        )
 
     # Step 2 — Build prompt for Claude
     prompt = build_threat_prompt(
@@ -232,7 +273,8 @@ def assess_threat(
         signal_confidence  = signal_confidence,
         context_confidence = context_confidence,
         historian_summary  = historian_summary,
-        n_events           = len(gdelt_events)
+        n_events           = len(gdelt_events),
+        n_goldstein        = n_goldstein
     )
 
     # Step 3 — Call Claude via invoke_model()
