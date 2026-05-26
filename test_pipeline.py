@@ -22,7 +22,7 @@ from orchestration.pipeline import pipeline
 initial_state = {
     # Pipeline-level
     'session_id':    str(uuid.uuid4()),
-    'analyst_query': 'Find conflict events in Mali regarding JNIM insurgency',
+    'analyst_query': 'What is the situation in Iran?',
     'retrieved_at':  datetime.now(timezone.utc).isoformat(),
 
     # Agent 1 defaults — overwritten by signal_monitor_node
@@ -77,8 +77,8 @@ print('─'*60)
 print(f"Signal confidence:  {result['signal_confidence']}")
 print(f"GDELT events found: {len(result['gdelt_events'])}")
 print(f"Errors:             {result['errors']}")
-print(f"\nSignal summary (first 400 chars):")
-print(result['signal_summary'][:400])
+print(f"\nSignal summary:")
+print(result['signal_summary'])
 
 # ── Agent 1 results ───────────────────────────────────────────────────────────
 print('─'*60)
@@ -87,8 +87,8 @@ print('─'*60)
 print(f"Signal confidence:  {result['signal_confidence']}")
 print(f"GDELT events found: {len(result['gdelt_events'])}")
 print(f"Errors:             {result['errors']}")
-print(f"\nSignal summary (first 400 chars):")
-print(result['signal_summary'][:400])
+print(f"\nSignal summary:")
+print(result['signal_summary'])
 
 # ── Agent 2 results ───────────────────────────────────────────────────────────
 print('\n' + '─'*60)

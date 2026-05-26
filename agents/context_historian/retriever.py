@@ -3,6 +3,21 @@ import boto3
 import json
 import networkx as nx # type: ignore
 from typing import List, Dict
+from agents.context_historian.wikidata_client import (
+    query_wikidata,
+    format_for_graph_context
+)
+
+GRAPH_STOP_WORDS = {
+    'what', 'where', 'when', 'who', 'why', 'how',
+    'is', 'are', 'was', 'were', 'will', 'would',
+    'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for',
+    'of', 'and', 'or', 'but', 'with', 'about',
+    'tell', 'me', 'find', 'get', 'show', 'give',
+    'current', 'latest', 'recent', 'situation',
+    'security', 'conflict', 'update', 'status',
+    'regarding', 'related', 'concerning', 'involving'
+}
 
 # ── GRAPH RETRIEVER ──────────────────────────────────────────────────────────
 
@@ -34,7 +49,11 @@ def graph_retrieve(query: str, signal_summary: str = '') -> List[str]:
     # Search both query and signal summary for entity matches
     combined_text = query + ' ' + signal_summary
     entities = extract_entities(combined_text, G)
-    
+    entities = [
+        e for e in entities
+        if e.lower() not in GRAPH_STOP_WORDS and len(e) > 2
+    ]
+
     # If no entities found, return empty
     if not entities:
         return []
@@ -86,7 +105,31 @@ def graph_retrieve(query: str, signal_summary: str = '') -> List[str]:
         if r not in seen:
             seen.add(r)
             unique.append(r)
-    
+
+    # Wikidata fallback — when local graph has sparse coverage for this region
+    # (fewer than 3 relationships), query Wikidata for structured relationships.
+    # All Wikidata results are flagged unverified and logged for human review.
+    if len(unique) < 3:
+        # Extract primary entity from query — first capitalised token or full query
+        primary_entity = next(
+            (
+                word for word in query.split()
+                if word[0].isupper()
+                and word.lower() not in GRAPH_STOP_WORDS
+                and len(word) > 2
+            ),
+            query
+        )
+        print(f'[graph_retrieve] Local graph sparse ({len(unique)} rels) — '
+              f'falling back to Wikidata for "{primary_entity}"')
+        try:
+            wikidata_rels = query_wikidata(entity=primary_entity, region=query)
+            wikidata_strings = format_for_graph_context(wikidata_rels)
+            unique.extend(wikidata_strings)
+            print(f'[graph_retrieve] Wikidata returned {len(wikidata_strings)} relationships')
+        except Exception as e:
+            print(f'[graph_retrieve] Wikidata fallback failed: {str(e)}')
+
     return unique
 
 # ── TEMPORAL RETRIEVER ───────────────────────────────────────────────────────
@@ -114,12 +157,6 @@ def temporal_retrieve(query: str, signal_summary: str = '') -> List[dict]:
                 'region':      data.get('region', '')
             })
 
-    # If no entities matched or event metadata is sparse,
-    # return all events sorted chronologically.
-    # All Sahel events form relevant historical context for any regional query.
-    if not entities:
-        return sorted(all_events, key=lambda e: e['date'])
-
     entity_set = set(e.lower().replace('_', ' ') for e in entities)
 
     relevant = []
@@ -133,10 +170,31 @@ def temporal_retrieve(query: str, signal_summary: str = '') -> List[dict]:
         if any(entity in event_text for entity in entity_set):
             relevant.append(event)
 
-    # If filter returns fewer than 5 events, return all events —
-    # sparse metadata means we cannot trust the filter
-    if len(relevant) < 5:
-        return sorted(all_events, key=lambda e: e['date'])
+    # Check if any event nodes mention query entities
+    domain_match = any(
+        any(entity.lower() in str(node_data).lower()
+            for entity in entities)
+        for node, node_data in G.nodes(data=True)
+        if node_data.get('type') == 'Event'
+    )
+
+    if len(relevant) < 5 and not domain_match:
+        # No domain overlap at all — return gap note
+        # not unrelated events
+        return [{
+            'id':          'COVERAGE_GAP',
+            'date':        'unknown',
+            'description': (
+                f'No temporal events found for query entities: '
+                f'{entities}. Knowledge graph temporal coverage '
+                f'is Sahel-focused. This is a collection gap.'
+            ),
+            'actors':      [],
+            'region':      'unknown'
+        }]
+    elif len(relevant) < 5:
+        # Some domain overlap — return all events as before
+        return sorted(all_events, key=lambda x: x.get('date', ''))
 
     return sorted(relevant, key=lambda e: e['date'])
 
