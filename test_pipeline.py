@@ -22,7 +22,7 @@ from orchestration.pipeline import pipeline
 initial_state = {
     # Pipeline-level
     'session_id':    str(uuid.uuid4()),
-    'analyst_query': 'What is the situation in Iran?',
+    'analyst_query': 'JNIM siege of Bamako May 2026 — road blockades, WFP suspension, IHL violations',
     'retrieved_at':  datetime.now(timezone.utc).isoformat(),
 
     # Agent 1 defaults — overwritten by signal_monitor_node
@@ -50,6 +50,12 @@ initial_state = {
     'threat_rationale':  '',
     'key_indicators':    [],
     'threat_confidence': '',
+
+    # Agent 4 defaults — overwritten by red_team_node (only when threat_score >= 0.7)
+    'red_team_assessment':  '',
+    'counter_evidence':     [],
+    'revised_threat_score': 0.0,
+    'revised_confidence':   '',
 }
 
 # ── Run pipeline ──────────────────────────────────────────────────────────────
@@ -122,6 +128,24 @@ for ind in result['key_indicators']:
     print(f'  • {ind}')
 print(f'\nThreat rationale:')
 print(result['threat_rationale'])
+
+print()
+if result['threat_score'] >= 0.7:
+    print('─'*60)
+    print('AGENT 4 — RED TEAM')
+    print('─'*60)
+    print(f'Revised threat score: {result["revised_threat_score"]}')
+    print(f'Revised confidence:   {result["revised_confidence"]}')
+    print(f'\nCounter evidence:')
+    for c in result['counter_evidence']:
+        print(f'  • {c}')
+    print(f'\nRed team assessment:')
+    print(result['red_team_assessment'])
+else:
+    print('─'*60)
+    print('AGENT 4 — RED TEAM')
+    print('─'*60)
+    print(f'Skipped — threat_score {result["threat_score"]:.3f} < 0.7 threshold')
 
 # ── Pass/fail ─────────────────────────────────────────────────────────────────
 print('\n' + '='*60)

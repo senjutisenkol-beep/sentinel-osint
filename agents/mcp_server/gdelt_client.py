@@ -145,16 +145,29 @@ def query_gdelt(keywords: List[str], region: str = '') -> List[dict]:
             event_code = row[GDELT_COLUMNS['EventCode']]
             source_url = row[GDELT_COLUMNS['SourceURL']]
 
-            # Combine the text fields we'll search for keyword matches
-            searchable_text = f'{actor1} {actor2} {location}'
+            # GDELT uses CAMEO actor codes (REBEL, MIL, GOV)
+            # not proper names (JNIM, Wagner) — so keyword
+            # filtering on actor fields silently returns nothing.
+            #
+            # New approach:
+            # If region is provided — filter by location only.
+            # Return ALL events in that region regardless of actor.
+            # This is more reliable than keyword matching on CAMEO codes.
+            #
+            # If no region provided — use keyword filter on
+            # source_url and location only (not actor fields).
 
-            # Apply keyword filter — skip this row if no keywords match
-            if pattern and not pattern.search(searchable_text):
-                continue
-
-            # Apply region filter — skip if location doesn't mention the region
-            if region_lower and region_lower not in location.lower():
-                continue
+            # Apply region filter first — most reliable filter
+            if region_lower:
+                if region_lower not in location.lower():
+                    continue
+            else:
+                # No region — fall back to keyword matching
+                # Search source_url and location only
+                # (actor fields use CAMEO codes, not names)
+                searchable_text = f'{location} {source_url}'
+                if pattern and not pattern.search(searchable_text):
+                    continue
 
             # Convert GDELT date format YYYYMMDD to readable YYYY-MM-DD
             try:

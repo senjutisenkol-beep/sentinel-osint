@@ -100,7 +100,8 @@ def lambda_handler(event, context):
         signal_summary = (
             f"Signal query: {query.strip()}\n"
             f"Sources: GDELT={source_summary.get('GDELT',0)}, "
-            f"NewsAPI={source_summary.get('NewsAPI',0)}, "
+            f"GDELT_DOC={source_summary.get('GDELT_DOC',0)}, "
+            f"GNews={source_summary.get('GNews',0)}, "
             f"ReliefWeb={source_summary.get('ReliefWeb',0)}.\n"
             f"Unique items: {source_summary.get('deduplicated_count',0)}\n\n"
         )

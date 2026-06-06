@@ -32,6 +32,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Import our three data clients
 from agents.mcp_server.gdelt_client      import query_gdelt
+from agents.mcp_server.gdelt_doc_client  import query_gdelt_doc
 from agents.mcp_server.news_client       import query_newsapi
 from agents.mcp_server.reliefweb_client  import query_reliefweb
 
@@ -76,26 +77,25 @@ def tool_query_gdelt(keywords: List[str], region: str = '') -> str:
 # ── TOOL 2: NEWSAPI ───────────────────────────────────────────────────────────
 
 @mcp.tool()
-def tool_query_newsapi(query: str, region: str = '', days: int = 7) -> str:
+def tool_query_gdelt_doc(query: str, region: str = '', days: int = 7) -> str:
     """
-    Search NewsAPI for recent news articles about a geopolitical topic.
+    Search GDELT DOC API for recent news articles about a geopolitical topic.
 
-    NewsAPI searches thousands of English-language sources including BBC,
-    Reuters, AP, Al Jazeera, and The Guardian. Returns article titles,
-    summaries, and source URLs.
+    Searches full article text — proper names like JNIM and Wagner match
+    directly. No API key required. Works in Lambda (no server-side blocking).
 
     Args:
         query:  Search string e.g. 'JNIM insurgency Mali'
         region: Optional region hint e.g. 'Mali'
-        days:   How many days back to search (default 7, max 30 on free tier)
+        days:   How many days back to search (default 7, max 90)
 
     Returns:
         JSON string containing list of article dicts and a summary count.
     """
-    articles = query_newsapi(query=query, region=region, days=days)
+    articles = query_gdelt_doc(query=query, region=region, days=days)
 
     return json.dumps({
-        'source':        'NewsAPI',
+        'source':        'GDELT_DOC',
         'article_count': len(articles),
         'articles':      articles
     }, indent=2)
@@ -159,17 +159,23 @@ def query_all_sources(
 
     # ── Step 1: Query each source independently ───────────────────────────────
 
-    # Build the NewsAPI query from keywords if not provided separately
-    # e.g. keywords=['JNIM','Mali'] → query='JNIM Mali'
-    news_query = query if query else ' '.join(keywords)
+    # Build query strings for each news source
+    # GDELT DOC: full query string — handles multi-word naturally
+    gdelt_doc_query = query if query else ' '.join(keywords)
+    # GNews: OR-joined keywords — GNews treats spaces as AND, killing recall
+    # e.g. ['JNIM','Mali','insurgency'] → 'JNIM OR Mali OR insurgency'
+    gnews_query = query if query else ' OR '.join(keywords)
 
-    # Call GDELT — live events
+    # Call GDELT — live structured events
     gdelt_events = query_gdelt(keywords=keywords, region=region)
 
-    # Call NewsAPI — news articles
-    news_articles = query_newsapi(query=news_query, region=region, days=days)
+    # Call GDELT DOC API — full-text article search, no key, no server-side block
+    gdelt_doc_articles = query_gdelt_doc(query=gdelt_doc_query, region=region, days=days)
 
-    reliefweb_reports = query_reliefweb(query=news_query, country=region)
+    # Call GNews — full-text article search, works from Lambda, 100 req/day free
+    gnews_articles = query_newsapi(query=gnews_query, region=region, days=days)
+
+    reliefweb_reports = query_reliefweb(query=gdelt_doc_query, country=region)
 
     # ── Step 2: Normalise all results to a common schema ─────────────────────
     # Each source returns dicts with different field names.
@@ -196,16 +202,28 @@ def query_all_sources(
             'goldstein_scale': e.get('goldstein_scale', 0.0)
         })
 
-    # Normalise NewsAPI articles
-    for a in news_articles:
+    # Normalise GDELT DOC articles
+    for a in gdelt_doc_articles:
         normalised.append({
             'date':          a.get('date', 'unknown'),
             'title':         a.get('title', ''),
             'description':   a.get('description', ''),
-            'source':        a.get('source', 'NewsAPI'),
+            'source':        a.get('source', 'GDELT_DOC'),
             'url':           a.get('url', ''),
-            'data_source':   'NewsAPI',
-            'goldstein_scale': 0.0  # NewsAPI has no Goldstein score
+            'data_source':   'GDELT_DOC',
+            'goldstein_scale': 0.0
+        })
+
+    # Normalise GNews articles
+    for a in gnews_articles:
+        normalised.append({
+            'date':          a.get('date', 'unknown'),
+            'title':         a.get('title', ''),
+            'description':   a.get('description', ''),
+            'source':        a.get('source', 'GNews'),
+            'url':           a.get('url', ''),
+            'data_source':   'GNews',
+            'goldstein_scale': 0.0
         })
 
     # Normalise ReliefWeb reports (empty for now)
@@ -247,39 +265,38 @@ def query_all_sources(
     # Replaces the Lambda's count-based confidence with relevance-aware scoring.
     # This fixes the Wagner bug where 13 irrelevant events = 0.75 confidence.
 
-    gdelt_count     = len(gdelt_events)
-    newsapi_count   = len(news_articles)
-    reliefweb_count = len(reliefweb_reports)
-    total_events    = len(deduplicated)
+    gdelt_count      = len(gdelt_events)
+    gdelt_doc_count  = len(gdelt_doc_articles)
+    gnews_count      = len(gnews_articles)
+    reliefweb_count  = len(reliefweb_reports)
+    total_events     = len(deduplicated)
 
     # Count how many sources returned data
     sources_with_data = sum([
-        1 if gdelt_count > 0     else 0,
-        1 if newsapi_count > 0   else 0,
+        1 if gdelt_count     > 0 else 0,
+        1 if gdelt_doc_count > 0 else 0,
+        1 if gnews_count     > 0 else 0,
         1 if reliefweb_count > 0 else 0,
     ])
 
     # Confidence scoring matrix — based on source count and event volume
     if total_events == 0:
-        # No data from any source — honest zero signal
         confidence = 0.1
     elif sources_with_data == 1 and total_events <= 5:
-        # One source, low volume — weak signal
         confidence = 0.3
     elif sources_with_data == 1 and total_events > 5:
-        # One source, good volume — moderate signal
         confidence = 0.5
     elif sources_with_data == 2:
-        # Two sources corroborating — strong signal
         confidence = 0.7
     else:
-        # All three sources with data — maximum confidence
+        # 3+ sources corroborating — high confidence
         confidence = 0.9
 
     # ── Step 6: Build source summary for transparency ─────────────────────────
     source_summary = {
         'GDELT':      gdelt_count,
-        'NewsAPI':    newsapi_count,
+        'GDELT_DOC':  gdelt_doc_count,
+        'GNews':      gnews_count,
         'ReliefWeb':  reliefweb_count,
         'total':      total_events,
         'deduplicated_count': len(deduplicated)

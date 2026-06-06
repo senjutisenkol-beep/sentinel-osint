@@ -43,6 +43,7 @@ from agents.context_historian.retriever import (
 # a single intelligence summary and a confidence score.
 from agents.context_historian.synthesizer import synthesise
 from agents.threat_analyst.threat_analyst import assess_threat
+from agents.red_team.red_team import challenge_assessment
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,6 +259,45 @@ def threat_analyst_node(state: SentinelState) -> dict:
     return result
 
 
+def red_team_node(state: SentinelState) -> dict:
+    """
+    Agent 4 — Red Team.
+
+    Only runs when threat_score >= 0.7.
+    Adversarially challenges Agent 3's assessment.
+    Can only reduce the threat score, never increase it.
+
+    Reads:  analyst_query, signal_summary, historian_summary,
+            threat_level, threat_score, threat_rationale,
+            key_indicators, threat_confidence, gdelt_events
+    Writes: red_team_assessment, counter_evidence,
+            revised_threat_score, revised_confidence
+    """
+    result = challenge_assessment(
+        analyst_query     = state['analyst_query'],
+        signal_summary    = state['signal_summary'],
+        historian_summary = state['historian_summary'],
+        threat_level      = state['threat_level'],
+        threat_score      = state['threat_score'],
+        threat_rationale  = state['threat_rationale'],
+        key_indicators    = state['key_indicators'],
+        threat_confidence = state['threat_confidence'],
+        gdelt_events      = state['gdelt_events']
+    )
+    return result
+
+
+def route_after_threat(state: SentinelState) -> str:
+    """
+    CHOICE routing after Agent 3.
+    threat_score >= 0.7 → red_team (adversarial challenge)
+    threat_score < 0.7  → END (skip red team)
+    """
+    if state.get('threat_score', 0.0) >= 0.7:
+        return 'red_team'
+    return 'end'
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PIPELINE BUILDER
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,6 +317,7 @@ def build_pipeline():
     graph.add_node('signal_monitor',    signal_monitor_node)
     graph.add_node('context_historian', context_historian_node)
     graph.add_node('threat_analyst',    threat_analyst_node)
+    graph.add_node('red_team',          red_team_node)
 
     # Entry point
     graph.set_entry_point('signal_monitor')
@@ -292,7 +333,15 @@ def build_pipeline():
     )
 
     graph.add_edge('context_historian', 'threat_analyst')
-    graph.add_edge('threat_analyst', END)
+    graph.add_conditional_edges(
+        'threat_analyst',
+        route_after_threat,
+        {
+            'red_team': 'red_team',
+            'end':       END
+        }
+    )
+    graph.add_edge('red_team', END)
 
     return graph.compile()
 

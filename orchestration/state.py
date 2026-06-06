@@ -32,3 +32,9 @@ class SentinelState(TypedDict):
     threat_rationale:  str
     key_indicators:    List[str]
     threat_confidence: str
+
+    # Agent 4 — Red Team
+    red_team_assessment:  str
+    counter_evidence:     List[str]
+    revised_threat_score: float
+    revised_confidence:   str

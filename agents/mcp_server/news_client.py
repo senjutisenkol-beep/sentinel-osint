@@ -1,27 +1,26 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # agents/mcp_server/news_client.py
 #
-# Queries NewsAPI for recent news articles matching a geopolitical query.
-# NewsAPI searches English-language sources including BBC, Reuters, AP,
-# Al Jazeera, The Guardian, and thousands more.
+# Queries GNews API for recent news articles about a geopolitical topic.
+# Replaced NewsAPI (newsapi.org) which restricts free tier to localhost only —
+# making it unusable from AWS Lambda. GNews has no localhost restriction.
 #
-# Fills two GDELT gaps:
-#   1. Named actor search — "JNIM" appears in headlines as written
-#   2. Article descriptions — prose context for the synthesiser
+# GNews API: https://gnews.io
+# Free tier: 100 requests/day, no localhost restriction
+# Auth: API key as query parameter (GNEWS_API_KEY in .env)
 # ─────────────────────────────────────────────────────────────────────────────
 
-import requests    # HTTP library for calling the NewsAPI endpoint
-import os          # Access environment variables (NEWSAPI_KEY)
-from datetime import date, timedelta  # Build date range for the query
-from typing import List               # Type hint for return annotation
-
+import requests
+import os
+from datetime import datetime, timedelta, timezone
+from typing import List
 
 # ── CONSTANTS ─────────────────────────────────────────────────────────────────
 
-# NewsAPI everything endpoint — searches articles across all indexed sources
-NEWSAPI_URL = 'https://newsapi.org/v2/everything'
+# GNews API endpoint — searches articles across all indexed sources
+GNEWS_URL = 'https://gnews.io/api/v4/search'
 
-# Maximum articles to return — keeps prompt size manageable
+# Maximum articles to return
 MAX_ARTICLES = 10
 
 
@@ -29,100 +28,88 @@ MAX_ARTICLES = 10
 
 def query_newsapi(query: str, region: str = '', days: int = 7) -> List[dict]:
     """
-    Search NewsAPI for recent articles matching a geopolitical query.
+    Search GNews for recent articles matching a geopolitical query.
+    Function name kept as query_newsapi() for backwards compatibility
+    with server.py and pipeline.py which import this name.
 
     Args:
-        query:  Search string e.g. 'JNIM insurgency Mali' or 'Wagner Africa'
-        region: Optional region hint appended to query e.g. 'Mali'
-        days:   How many days back to search (default 7, free tier max 30)
+        query:  Search string e.g. 'JNIM insurgency Mali'
+        region: Optional region hint appended to query
+        days:   How many days back to search (default 7)
 
     Returns:
-        List of article dicts, each with: date, title, description,
+        List of article dicts with: date, title, description,
         source, url, data_source.
-        Returns empty list if NewsAPI is unavailable or no articles found.
     """
 
-    # ── Step 1: Build the search query string ─────────────────────────────────
-
-    # Combine the main query with the region for more targeted results
-    # e.g. query='JNIM insurgency' + region='Mali' → 'JNIM insurgency Mali'
+    # ── Step 1: Build search query ────────────────────────────────────────────
     full_query = query.strip()
     if region and region.lower() not in full_query.lower():
-        # Only append region if it's not already in the query string
-        # Avoids redundant "Mali Mali" type queries
         full_query = f'{full_query} {region}'
 
-    # ── Step 2: Build the date range ─────────────────────────────────────────
+    # ── Step 2: Build date range ──────────────────────────────────────────────
+    # GNews expects ISO 8601 format with timezone
+    end_date   = datetime.now(timezone.utc)
+    start_date = end_date - timedelta(days=days)
 
-    # NewsAPI free tier allows searching up to 30 days back
-    # We default to 7 days to keep results current and relevant
-    end_date   = date.today().isoformat()                          # Today: 2026-04-27
-    start_date = (date.today() - timedelta(days=days)).isoformat() # 7 days ago
+    # Format: 2026-05-01T00:00:00Z
+    from_str = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+    to_str   = end_date.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    # ── Step 3: Call the NewsAPI endpoint ────────────────────────────────────
-
+    # ── Step 3: Call GNews API ────────────────────────────────────────────────
     try:
         response = requests.get(
-            NEWSAPI_URL,
+            GNEWS_URL,
             params={
-                'q':        full_query,   # The search query string
-                'from':     start_date,   # Start of date range
-                'to':       end_date,     # End of date range
-                'language': 'en',         # English articles only
-                'sortBy':   'publishedAt',# Most recent first
-                'pageSize': MAX_ARTICLES, # Max articles to return
-                'apiKey':   os.environ['NEWSAPI_KEY']  # Auth key from .env
+                'q':        full_query,   # Search query
+                'from':     from_str,     # Start date
+                'to':       to_str,       # End date
+                'lang':     'en',         # English articles only
+                'sortby':   'publishedAt',# Most recent first
+                'max':      MAX_ARTICLES, # Max articles
+                'apikey':   os.environ['GNEWS_API_KEY']  # Auth from .env
             },
-            timeout=10  # Fail fast if NewsAPI is slow
+            timeout=10
         )
-        response.raise_for_status()  # Raise exception on HTTP error
-
+        response.raise_for_status()
         data = response.json()
 
-        # NewsAPI returns status 'ok' on success, 'error' on failure
-        if data.get('status') != 'ok':
-            print(f'[news_client] NewsAPI returned status: {data.get("status")}')
-            print(f'[news_client] Message: {data.get("message", "unknown error")}')
+        # GNews returns totalArticles count and articles list
+        if 'articles' not in data:
+            print(f'[news_client] GNews returned no articles key: {data}')
             return []
 
     except Exception as e:
-        print(f'[news_client ERROR] Failed to call NewsAPI: {str(e)}')
+        print(f'[news_client ERROR] Failed to call GNews: {str(e)}')
         return []
 
-    # ── Step 4: Parse and clean the articles ─────────────────────────────────
-
+    # ── Step 4: Parse articles ────────────────────────────────────────────────
     articles = []
 
     for article in data.get('articles', []):
 
-        # Extract the publication date — NewsAPI returns ISO 8601 format
-        # e.g. "2026-04-27T14:32:00Z" → we take just the date part "2026-04-27"
+        # GNews returns publishedAt in ISO 8601 format
         published_at = article.get('publishedAt', '')
         date_str = published_at[:10] if published_at else 'unknown'
 
-        # Extract the source name — e.g. "BBC News", "Reuters", "Al Jazeera"
+        # Extract source name
         source_name = article.get('source', {}).get('name', 'Unknown')
 
-        # Extract description — 1-2 sentence summary of the article
-        # Fall back to title if no description available
+        # Extract description — fall back to title if empty
         description = article.get('description') or article.get('title', '')
-
-        # Truncate very long descriptions to keep prompt size manageable
         if description and len(description) > 300:
             description = description[:300] + '...'
 
-        # Skip articles with no useful content
         if not description:
             continue
 
-        # Build clean event dict — same shape as GDELT output for merger compatibility
         articles.append({
             'date':        date_str,
             'title':       article.get('title', ''),
             'description': description,
             'source':      source_name,
             'url':         article.get('url', ''),
-            'data_source': 'NewsAPI'  # Tag so merger knows where this came from
+            'data_source': 'NewsAPI'  # Keep label for merger compatibility
         })
 
     return articles
