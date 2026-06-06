@@ -22,7 +22,7 @@ from orchestration.pipeline import pipeline
 initial_state = {
     # Pipeline-level
     'session_id':    str(uuid.uuid4()),
-    'analyst_query': 'JNIM siege of Bamako May 2026 — road blockades, WFP suspension, IHL violations',
+    'analyst_query': 'Israel Gaza military offensive 2026',
     'retrieved_at':  datetime.now(timezone.utc).isoformat(),
 
     # Agent 1 defaults — overwritten by signal_monitor_node
