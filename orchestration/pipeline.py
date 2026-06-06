@@ -148,9 +148,14 @@ def signal_monitor_node(state: SentinelState) -> dict:
         # signal_summary is passed to Agent 2 which uses the first 300
         # characters for query expansion in vector retrieval — the richer
         # this summary is, the better the KB chunks Agent 2 will find.
+        # Clamp to minimum 0.1 — the Bedrock Agent Claude can rewrite
+        # confidence_score to 0.0 based on its own relevance judgment,
+        # which would skip Agent 2 entirely. 0.1 is the defined floor:
+        # "base/no-events, not failure" (CLAUDE.md). Agent 2 always runs.
+        raw_confidence = parsed.get('confidence_score', 0.1)
         return {
             'gdelt_events':      parsed.get('events', []),
-            'signal_confidence': parsed.get('confidence_score', 0.1),
+            'signal_confidence': max(0.1, raw_confidence),
             'signal_summary':    parsed.get('signal_summary', raw),
             'errors':            []
         }
