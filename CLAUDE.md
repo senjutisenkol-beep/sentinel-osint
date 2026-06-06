@@ -70,6 +70,10 @@ Full day-by-day notes: `docs/progress/week1-2.md`
 | 9 | COMPLETE | LangSmith tracing, bottleneck: Agent 1 = 68% of 41s total |
 | 10 | COMPLETE | Threshold calibration: routing 0.1, vector 0.50 |
 | 11 | COMPLETE | MCP server live (3 sources), Lambda upgraded, Agent 3 state fields added |
+| 12 | COMPLETE | Agent 3 Threat Analyst — weighted Goldstein scoring, invoke_model, HIGH/MEDIUM/LOW/UNKNOWN |
+| 13 | COMPLETE | Agent 4 Red Team — adversarial challenge, score can only decrease, fires on threat_score >= 0.7 |
+| 14 | COMPLETE | All 4 agents end-to-end on live data — Israel/Gaza 0.732 → 0.58 after Red Team |
+| 15 | COMPLETE | Agentic loop — 3 loop-back behaviours, loop_count guard, pipeline is no longer a DAG |
 
 ## Week 3 Plan
 
