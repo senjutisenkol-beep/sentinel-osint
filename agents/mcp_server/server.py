@@ -162,9 +162,10 @@ def query_all_sources(
     # Build query strings for each news source
     # GDELT DOC: full query string — handles multi-word naturally
     gdelt_doc_query = query if query else ' '.join(keywords)
-    # GNews: OR-joined keywords — GNews treats spaces as AND, killing recall
+    # GNews: always OR-join keywords regardless of query parameter —
+    # GNews treats spaces as AND so a long query string kills recall.
     # e.g. ['JNIM','Mali','insurgency'] → 'JNIM OR Mali OR insurgency'
-    gnews_query = query if query else ' OR '.join(keywords)
+    gnews_query = ' OR '.join(keywords) if keywords else query
 
     # Call GDELT — live structured events
     gdelt_events = query_gdelt(keywords=keywords, region=region)
