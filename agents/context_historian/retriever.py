@@ -123,7 +123,7 @@ def graph_retrieve(query: str, signal_summary: str = '') -> List[str]:
         print(f'[graph_retrieve] Local graph sparse ({len(unique)} rels) — '
               f'falling back to Wikidata for "{primary_entity}"')
         try:
-            wikidata_rels = query_wikidata(entity=primary_entity, region=query)
+            wikidata_rels = query_wikidata(entity=primary_entity, region=primary_entity)
             wikidata_strings = format_for_graph_context(wikidata_rels)
             unique.extend(wikidata_strings)
             print(f'[graph_retrieve] Wikidata returned {len(wikidata_strings)} relationships')
