@@ -37,6 +37,9 @@ initial_state = {
     # Error tracking
     'errors': [],
 
+    # Agentic loop control
+    'loop_count': 0,
+
     # Agent 2 defaults — overwritten by context_historian_node
     'graph_context':      [],
     'temporal_context':   [],

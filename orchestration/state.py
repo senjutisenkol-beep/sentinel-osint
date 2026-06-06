@@ -19,6 +19,9 @@ class SentinelState(TypedDict):
     # Error tracking
     errors:            List[str]
 
+    # Agentic loop control
+    loop_count:        int
+
     # Agent 2 — Context Historian
     vector_context:     List[dict]
     graph_context:      List[str]

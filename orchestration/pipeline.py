@@ -50,128 +50,93 @@ from agents.red_team.red_team import challenge_assessment
 # AGENT 1 — SIGNAL MONITOR NODE
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _refine_query(query: str, attempt: int) -> str:
+    """Broadens the analyst query for each retry attempt when signal is weak."""
+    suffixes = [
+        ' conflict military violence armed',
+        ' war crisis insurgency casualties armed conflict'
+    ]
+    return query + suffixes[min(attempt, len(suffixes) - 1)]
+
+
+def _invoke_agent_once(client, session_id: str, query: str) -> dict:
+    """
+    Single attempt to call the Bedrock Agent and parse its JSON response.
+    Returns a result dict on success, raises on failure.
+    """
+    response = client.invoke_agent(
+        agentId     ='OPABTSHSPN',
+        agentAliasId='TSTALIASID',
+        sessionId   = session_id,
+        inputText   = query
+    )
+
+    raw = ''
+    for event in response['completion']:
+        if 'chunk' in event:
+            raw += event['chunk']['bytes'].decode('utf-8')
+
+    # Extract outermost JSON object from prose-wrapped Bedrock response
+    json_start = raw.find('{')
+    brace_count = 0
+    json_end = json_start
+    for i in range(json_start, len(raw)):
+        if raw[i] == '{':   brace_count += 1
+        elif raw[i] == '}': brace_count -= 1
+        if brace_count == 0:
+            json_end = i + 1
+            break
+
+    parsed = json.loads(raw[json_start:json_end])
+    raw_confidence = parsed.get('confidence_score', 0.1)
+    return {
+        'gdelt_events':      parsed.get('events', []),
+        'signal_confidence': max(0.1, raw_confidence),
+        'signal_summary':    parsed.get('signal_summary', raw),
+        'errors':            []
+    }
+
+
 def signal_monitor_node(state: SentinelState) -> dict:
     """
     Agent 1 — Signal Monitor.
 
-    Architecture (production-grade):
-        Analyst query
-            → invoke_agent() — Bedrock Agent OPABTSHSPN
-                → Claude transforms query into smart keywords
-                → Calls Lambda tool (sentinel-signal-monitor-gdelt)
-                    → Lambda calls MCP server query_all_sources()
-                        → GDELT + NewsAPI + ReliefWeb merged feed
-                → Returns structured JSON with confidence score
+    Agentic loop (Change 1): retries up to 3 times with broadened keywords
+    when signal_confidence < 0.3 after first attempt. Agent decides when it
+    has enough signal to proceed — or returns best available after max tries.
 
-    Why Bedrock Agent instead of direct Python call:
-        Claude inside the Bedrock Agent reads the analyst's natural
-        language query and intelligently decides what keywords to
-        search for — understanding context, synonyms, and domain
-        terminology. A simple string split cannot do this.
-        The MCP server handles multi-source data merging.
-        Bedrock handles intelligent query transformation.
-        Both layers are needed.
-
-    Reads from state:
-        session_id:    unique ID for this pipeline run
-        analyst_query: raw natural language question from analyst
-
-    Writes to state:
-        gdelt_events:      merged event list from all three sources
-        signal_confidence: corroboration-based score (not event count)
-        signal_summary:    prose summary for Agent 2 query enrichment
-        errors:            list of error strings if something failed
+    Reads:  session_id, analyst_query, loop_count
+    Writes: gdelt_events, signal_confidence, signal_summary, errors, loop_count
     """
-
-    # Create the Bedrock Agent Runtime client.
-    # bedrock-agent-runtime is used for invoking Bedrock Agents and
-    # querying Knowledge Bases. Different from bedrock-runtime which
-    # is for direct model calls (used in synthesiser.py).
     client = boto3.client('bedrock-agent-runtime', region_name='us-east-1')
+    query      = state['analyst_query']
+    max_attempts = 3
+    last_result  = None
 
-    try:
-        # invoke_agent sends the analyst's natural language query to
-        # the Bedrock Agent. Claude inside the agent reads the query,
-        # reasons about what keywords to search for, and calls the
-        # Lambda tool via the Action Group mechanism.
-        #
-        # agentId:      OPABTSHSPN — our Signal Monitor agent in Bedrock
-        # agentAliasId: TSTALIASID — test alias pointing to latest draft
-        # sessionId:    ties this call to the current pipeline run session
-        # inputText:    the raw analyst query — Claude transforms this
-        response = client.invoke_agent(
-            agentId     ='OPABTSHSPN',
-            agentAliasId='TSTALIASID',
-            sessionId   = state['session_id'],
-            inputText   = state['analyst_query']
+    for attempt in range(max_attempts):
+        # New session ID per retry so Bedrock Agent doesn't inherit prior
+        # low-confidence conversation history
+        session_id = (
+            state['session_id'] if attempt == 0
+            else f"{state['session_id']}-r{attempt}"
         )
+        try:
+            last_result = _invoke_agent_once(client, session_id, query)
+            if last_result['signal_confidence'] >= 0.3:
+                break  # Agent decides: enough signal
+            query = _refine_query(query, attempt)
+        except Exception as e:
+            last_result = {
+                'gdelt_events':      [],
+                'signal_confidence': 0.1,
+                'signal_summary':    '',
+                'errors':            [f'signal_monitor_node failed (attempt {attempt + 1}): {str(e)}']
+            }
+            query = _refine_query(query, attempt)
 
-        # Bedrock streams the response back in chunks rather than one
-        # payload. We loop through every streaming event and accumulate
-        # the text into a single string called raw.
-        raw = ''
-        for events in response['completion']:
-            if 'chunk' in events:
-                # Each chunk arrives as raw bytes — decode to UTF-8 string
-                raw += events['chunk']['bytes'].decode('utf-8')
-
-        # The Bedrock Agent embeds a JSON object inside its text response.
-        # We cannot use json.loads(raw) directly because there may be
-        # surrounding prose text from Claude's reasoning.
-        # Instead we find the JSON block by tracking opening and closing
-        # braces — when brace_count returns to 0 we have found the full
-        # outermost JSON object.
-        json_start = raw.find('{')   # Position of first opening brace
-        brace_count = 0
-        json_end = json_start
-
-        for i in range(json_start, len(raw)):
-            if raw[i] == '{':
-                brace_count += 1   # Going deeper into nested JSON
-            elif raw[i] == '}':
-                brace_count -= 1   # Coming back out
-            if brace_count == 0:
-                # brace_count back to zero means we closed the outermost
-                # JSON object — this is where the block ends
-                json_end = i + 1
-                break
-
-        # Slice out just the JSON block and parse it into a Python dict
-        json_block = raw[json_start:json_end]
-        parsed = json.loads(json_block)
-
-        # The Lambda now returns a richer response from the MCP server:
-        # events:           merged list from GDELT + NewsAPI + ReliefWeb
-        # confidence_score: corroboration-based (0.7 = two sources agree)
-        # signal_summary:   pre-built prose with source counts + top events
-        #
-        # signal_summary is passed to Agent 2 which uses the first 300
-        # characters for query expansion in vector retrieval — the richer
-        # this summary is, the better the KB chunks Agent 2 will find.
-        # Clamp to minimum 0.1 — the Bedrock Agent Claude can rewrite
-        # confidence_score to 0.0 based on its own relevance judgment,
-        # which would skip Agent 2 entirely. 0.1 is the defined floor:
-        # "base/no-events, not failure" (CLAUDE.md). Agent 2 always runs.
-        raw_confidence = parsed.get('confidence_score', 0.1)
-        return {
-            'gdelt_events':      parsed.get('events', []),
-            'signal_confidence': max(0.1, raw_confidence),
-            'signal_summary':    parsed.get('signal_summary', raw),
-            'errors':            []
-        }
-
-    except Exception as e:
-        # If anything fails — network error, Bedrock throttle, malformed
-        # JSON — return safe fallback values so the pipeline can still
-        # route correctly. The error is logged in state errors list.
-        # signal_confidence 0.1 is the base score — above the 0.1
-        # routing threshold so Agent 2 still runs even on Agent 1 failure.
-        return {
-            'gdelt_events':      [],
-            'signal_confidence': 0.1,
-            'signal_summary':    '',
-            'errors':            [f'signal_monitor_node failed: {str(e)}']
-        }
+    # Increment loop_count once per node invocation (not per retry attempt)
+    last_result['loop_count'] = state.get('loop_count', 0) + 1
+    return last_result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -198,28 +163,36 @@ def route_after_signal(state: SentinelState) -> str:
 # AGENT 2 — CONTEXT HISTORIAN NODE
 # ─────────────────────────────────────────────────────────────────────────────
 
+def route_after_context(state: SentinelState) -> str:
+    """
+    Agentic loop (Change 2): if context_confidence < 0.2 and we haven't
+    exceeded the loop budget, send Agent 1 back for a broader query.
+    Otherwise proceed to Agent 3.
+    """
+    if state.get('context_confidence', 0.0) < 0.2 and state.get('loop_count', 0) < 2:
+        return 'signal_monitor'
+    return 'threat_analyst'
+
+
 def context_historian_node(state: SentinelState) -> dict:
     """
     Agent 2 — Context Historian.
     Runs three retrieval channels then synthesises into one intelligence summary.
 
-    Reads:  analyst_query, signal_summary
+    Agentic loop: when invoked as a loop-back from Agent 3 (threat_confidence
+    already set in state), increments loop_count to bound the cycle.
+
+    Reads:  analyst_query, signal_summary, loop_count, threat_confidence
     Writes: graph_context, temporal_context, vector_context,
-            historian_summary, context_confidence
+            historian_summary, context_confidence, loop_count
     """
     query          = state['analyst_query']
     signal_summary = state.get('signal_summary', '')
 
-    # Channel 1 — graph traversal: entity relationships from knowledge graph
-    graph_context = graph_retrieve(query, signal_summary)
-
-    # Channel 2 — temporal: chronological Event nodes from knowledge graph
+    graph_context    = graph_retrieve(query, signal_summary)
     temporal_context = temporal_retrieve(query, signal_summary)
+    vector_context   = vector_retrieve(query, signal_summary)
 
-    # Channel 3 — vector: semantically relevant chunks from Bedrock KB
-    vector_context = vector_retrieve(query, signal_summary)
-
-    # Synthesise all three channels into one summary via direct Claude call
     synthesis = synthesise(
         query            = query,
         signal_summary   = signal_summary,
@@ -228,12 +201,18 @@ def context_historian_node(state: SentinelState) -> dict:
         vector_context   = vector_context
     )
 
+    # Increment loop_count when this is a loop-back from Agent 3
+    # (threat_confidence already set means Agent 3 has run before this call).
+    # Prevents Agent 3 → Agent 2 → Agent 3 infinite cycle.
+    loop_increment = 1 if state.get('threat_confidence') else 0
+
     return {
         'graph_context':      graph_context,
         'temporal_context':   temporal_context,
         'vector_context':     vector_context,
         'historian_summary':  synthesis['historian_summary'],
-        'context_confidence': synthesis['context_confidence']
+        'context_confidence': synthesis['context_confidence'],
+        'loop_count':         state.get('loop_count', 0) + loop_increment
     }
 
 
@@ -294,10 +273,12 @@ def red_team_node(state: SentinelState) -> dict:
 
 def route_after_threat(state: SentinelState) -> str:
     """
-    CHOICE routing after Agent 3.
-    threat_score >= 0.7 → red_team (adversarial challenge)
-    threat_score < 0.7  → END (skip red team)
+    Agentic loop (Change 3): if threat_confidence is LOW and loop budget
+    allows, loop back to Agent 2 for more context before finalising.
+    Otherwise route by threat_score as normal.
     """
+    if state.get('threat_confidence') == 'LOW' and state.get('loop_count', 0) < 2:
+        return 'context_historian'
     if state.get('threat_score', 0.0) >= 0.7:
         return 'red_team'
     return 'end'
@@ -311,10 +292,11 @@ def build_pipeline():
     """
     Assembles and compiles the LangGraph StateGraph.
 
-    Current shape:
-                        ┌─► context_historian ─► END
-        signal_monitor ─┤
-                        └─► clarification ─────► END
+    Agentic loop shape:
+        signal_monitor ──► context_historian ──► threat_analyst ──► red_team ──► END
+             ▲                    │                    │
+             │   (conf < 0.2)     │   (conf LOW)       └──► END
+             └────────────────────┘◄───────────────────┘
     """
     graph = StateGraph(SentinelState)
 
@@ -337,13 +319,24 @@ def build_pipeline():
         }
     )
 
-    graph.add_edge('context_historian', 'threat_analyst')
+    # Change 2: context sufficiency check — may loop back to Agent 1
+    graph.add_conditional_edges(
+        'context_historian',
+        route_after_context,
+        {
+            'threat_analyst': 'threat_analyst',
+            'signal_monitor': 'signal_monitor'
+        }
+    )
+
+    # Change 3: end-turn decision — may loop back to Agent 2
     graph.add_conditional_edges(
         'threat_analyst',
         route_after_threat,
         {
-            'red_team': 'red_team',
-            'end':       END
+            'red_team':        'red_team',
+            'context_historian': 'context_historian',
+            'end':              END
         }
     )
     graph.add_edge('red_team', END)

@@ -121,6 +121,64 @@ Fields: report_id, generated_at, analyst_query, threat_level, threat_score, exec
 signal_summary, historical_context, threat_rationale, counter_evidence, revised_threat_score,
 gdelt_events, confidence_scores {signal, context, threat}, data_gaps
 
+## Day 15 — Agentic Loop Implementation
+
+### What
+Add genuine agentic loop properties to the pipeline.
+Currently Sentinel-OSINT is a DAG pipeline — agents
+do not control their own execution path. Three specific
+changes make it genuinely agentic:
+
+### Change 1 — Retry loop in signal_monitor_node()
+When signal_confidence < 0.3 after first attempt,
+Agent 1 retries with refined keywords (max 3 attempts).
+Agent decides when it has enough signal to proceed.
+
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        result = invoke_agent(query)
+        if result['signal_confidence'] >= 0.3:
+            return result  # Agent decides: enough
+        query = refine_query(query, attempt)
+    return result  # Agent decides: best available
+
+### Change 2 — Context sufficiency check in routing
+After Agent 2, check if context is sufficient before
+proceeding to Agent 3. If context_confidence < 0.2,
+loop back to Agent 1 with a broader query.
+
+    def route_after_context(state):
+        if state['context_confidence'] < 0.2:
+            if state.get('loop_count', 0) < 2:
+                return 'signal_monitor'  # Loop back
+        return 'threat_analyst'
+
+### Change 3 — End turn decision in Agent 3
+Agent 3 decides whether assessment is complete or
+whether it needs more context before terminating.
+
+    if threat_confidence == 'LOW' and loop_count < 2:
+        return 'context_historian'  # Loop back
+    return 'end'  # Agent decides: sufficient
+
+### Why this matters
+Without these changes the pipeline is a DAG not an
+agentic system. Your husband correctly identified this.
+Adding loop-back behaviour with retry and sufficiency
+checks gives agents genuine autonomy over execution.
+
+### Files to change
+- orchestration/pipeline.py — all three changes
+- orchestration/state.py — add loop_count: int field
+- Must add loop_count to initial_state in test_pipeline.py
+- Must add cycle detection to Step Functions design
+
+### Important
+Step Functions must be designed to support cycles
+before this is implemented. A DAG state machine
+cannot have loop-back edges. Use Express Workflow
+with a loop counter to prevent infinite loops.
+
 ### Week 3 Exit Criteria
 - [ ] KB enrichment automated — weekly EventBridge cron → S3 → Bedrock sync
 - [ ] All 4 agents wired into Step Functions state machine
