@@ -20,3 +20,22 @@ venv/
 # Test artifacts
 *.log
 *.tmp
+
+# Credentials and secrets — never commit
+*.txt
+"pinecone details and AWS KB id.txt"
+
+# Lambda build artifacts
+*.zip
+lambda_build/
+package/
+
+# Local data / research files
+Learnings/
+Learnings.zip
+agents/signal_monitor/response.json
+agents/context_historian/graph/graph_auto_seeds.json
+orchestration/cd
+
+# Roadmap HTML files (local reference only)
+*.html

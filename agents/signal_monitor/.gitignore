@@ -2,3 +2,5 @@
 package/
 __pycache__/
 *.pyc
+.venv/
+
