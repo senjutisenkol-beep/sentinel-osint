@@ -38,7 +38,7 @@ load_dotenv()
 # ── CONSTANTS ─────────────────────────────────────────────────────────────────
 
 KB_BUCKET         = 'sentinel-osint-knowledge-base'  # S3 bucket for KB docs
-KB_S3_PREFIX      = 'enrichment-docs/structural'     # Prefix for this job's docs
+KB_S3_PREFIX      = 'documents/structural'            # Prefix for this job's docs
 KB_ID             = 'WGLUOKITSP'                     # Bedrock KB ID
 KB_DATA_SOURCE_ID = 'SOMSV1H4GQ'                     # Bedrock data source ID
 

@@ -50,7 +50,7 @@ mcp = FastMCP('sentinel-geopolitical-mcp')
 
 # KB enrichment — write-through from MCP to Bedrock KB
 KB_BUCKET      = 'sentinel-osint-knowledge-base'
-KB_S3_PREFIX   = 'enrichment-docs/operational'
+KB_S3_PREFIX   = 'documents/operational'
 KB_ID          = 'WGLUOKITSP'
 # Find in Bedrock console → KB → Data Sources tab
 # Leave as None until you retrieve it from console
