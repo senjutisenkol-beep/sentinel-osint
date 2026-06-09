@@ -190,3 +190,15 @@ with a loop counter to prevent infinite loops.
 - [ ] Step Functions visual graph committed to README
 - [ ] Total pipeline latency < 30s
 - [ ] Niger query Agent 1 error resolved
+
+## Vector Threshold Tuning (Week 4)
+
+Current threshold: score >= 0.50
+After KB enrichment populates with 20+ documents per region,
+lower threshold to 0.40 and re-evaluate.
+
+Evidence: 3 Gaza docs ingested but scored below 0.50 for
+Israel/Gaza query. Threshold is currently too strict for
+a small KB. Will self-correct as KB grows.
+
+Re-evaluate after Day 18 30-query evaluation.
