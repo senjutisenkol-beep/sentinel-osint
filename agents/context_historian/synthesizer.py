@@ -33,6 +33,17 @@ def build_synthesis_prompt(
 
     # Format vector chunks — include score and source for traceability
     if vector_context:
+        has_operational = any(
+            'DOCUMENT_TYPE: operational_signal' in chunk.get('content', '')
+            for chunk in vector_context
+        )
+        operational_note = (
+            'NOTE: Some document chunks are tagged operational_signal — '
+            'these are recent MCP-fetched articles already covered by '
+            'Agent 1 signal channel. Use them as corroborating signal '
+            'only, not as structural historical context.\n\n'
+            if has_operational else ''
+        )
         vector_lines = []
         for i, chunk in enumerate(vector_context, 1):
             score = chunk.get('score', 0.0)
@@ -42,7 +53,7 @@ def build_synthesis_prompt(
             if len(content) > 600:
                 content = content[:600] + '...'
             vector_lines.append(f"[Chunk {i} | score={score} | source={source}]\n{content}")
-        vector_block = '\n\n'.join(vector_lines)
+        vector_block = operational_note + '\n\n'.join(vector_lines)
     else:
         vector_block = 'No document chunks retrieved.'
 

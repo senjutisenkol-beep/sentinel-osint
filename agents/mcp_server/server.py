@@ -18,7 +18,9 @@
 
 import os
 import json
-from datetime import datetime
+import boto3
+import uuid
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 
@@ -42,6 +44,17 @@ from agents.mcp_server.reliefweb_client  import query_reliefweb
 # FastMCP takes the server name as its first argument.
 # This name appears in capability discovery when a client connects.
 mcp = FastMCP('sentinel-geopolitical-mcp')
+
+
+# ── KB ENRICHMENT CONSTANTS ───────────────────────────────────────────────────
+
+# KB enrichment — write-through from MCP to Bedrock KB
+KB_BUCKET      = 'sentinel-osint-knowledge-base'
+KB_S3_PREFIX   = 'enrichment-docs/operational'
+KB_ID          = 'WGLUOKITSP'
+# Find in Bedrock console → KB → Data Sources tab
+# Leave as None until you retrieve it from console
+KB_DATA_SOURCE_ID = 'SOMSV1H4GQ'
 
 
 # ── TOOL 1: GDELT ─────────────────────────────────────────────────────────────
@@ -126,6 +139,85 @@ def tool_query_reliefweb(query: str, country: str = '') -> str:
         'report_count': len(reports),
         'reports':      reports
     }, indent=2)
+
+
+# ── KB WRITE-THROUGH ─────────────────────────────────────────────────────────
+
+def persist_to_kb(articles: list, region: str) -> None:
+    """
+    Persist MCP-fetched articles to S3 and trigger Bedrock KB sync.
+
+    This is the write-through cache pattern:
+    MCP fetches data for Agent 1 signal → ALSO saved to KB
+    → available as vector context for Agent 2 on future runs.
+
+    Only persists prose articles (GNews, ReliefWeb, GDELT DOC).
+    Skips GDELT event TSV rows — CAMEO codes embed poorly.
+
+    Tagged as DOCUMENT_TYPE: operational_signal so Agent 2
+    synthesiser knows not to use these as structural context.
+
+    Non-blocking — starts ingestion job and returns immediately.
+    New documents available in vector_retrieve() on next run.
+    """
+    if not articles:
+        return
+
+    s3 = boto3.client('s3', region_name='us-east-1')
+    uploaded = 0
+
+    for article in articles:
+        try:
+            doc_id = str(uuid.uuid4())[:8]
+            date   = article.get('date', 'unknown')
+            source = article.get('data_source', 'unknown').lower()
+            key    = (
+                f"{KB_S3_PREFIX}/{region.lower().replace(' ','-')}/"
+                f"{date}-{source}-{doc_id}.txt"
+            )
+
+            # Tag as operational_signal so Agent 2 synthesiser
+            # treats it as corroborating signal, not structural context
+            text = (
+                f"DOCUMENT_TYPE: operational_signal\n"
+                f"INGESTION_DATE: {datetime.now(timezone.utc).date().isoformat()}\n"
+                f"EVENT_DATE: {date}\n"
+                f"REGION: {region}\n"
+                f"SOURCE: {article.get('source', '')}\n"
+                f"DATA_FEED: {article.get('data_source', '')}\n\n"
+                f"TITLE: {article.get('title', '')}\n\n"
+                f"{article.get('description', '')}"
+            )
+
+            s3.put_object(
+                Bucket      = KB_BUCKET,
+                Key         = key,
+                Body        = text.encode('utf-8'),
+                ContentType = 'text/plain'
+            )
+            uploaded += 1
+
+        except Exception as e:
+            print(f'[persist_to_kb] Upload failed: {str(e)}')
+
+    print(f'[persist_to_kb] {uploaded}/{len(articles)} articles saved to S3 for {region}')
+
+    # Trigger KB sync — non-blocking, fire and forget
+    # New documents available in vector_retrieve() on next pipeline run
+    if KB_DATA_SOURCE_ID:
+        try:
+            bedrock = boto3.client('bedrock-agent', region_name='us-east-1')
+            bedrock.start_ingestion_job(
+                knowledgeBaseId = KB_ID,
+                dataSourceId    = KB_DATA_SOURCE_ID,
+                description     = f'MCP write-through {region} {datetime.now(timezone.utc).date()}'
+            )
+            print(f'[persist_to_kb] KB sync triggered for {region}')
+        except Exception as e:
+            print(f'[persist_to_kb] KB sync failed (non-fatal): {str(e)}')
+    else:
+        print('[persist_to_kb] KB_DATA_SOURCE_ID not set — skipping sync')
+        print('Find it: Bedrock console → Knowledge Bases → WGLUOKITSP → Data Sources')
 
 
 # ── TOOL 4: MERGED FEED ───────────────────────────────────────────────────────
@@ -262,7 +354,23 @@ def query_all_sources(
         reverse=True  # Most recent first
     )
 
-    # ── Step 5: Calculate signal_confidence ──────────────────────────────────
+    # ── Step 5: Write-through KB enrichment ──────────────────────────────
+    # Persist prose articles to S3 for Agent 2 vector channel
+    # Skips GDELT event TSV rows (CAMEO codes, no prose)
+    # Non-blocking — does not affect this run's output
+    articles_to_persist = [
+        e for e in deduplicated
+        if e.get('data_source') in ('GNews', 'GDELT_DOC', 'ReliefWeb')
+        and len(e.get('description', '')) > 100
+    ]
+    if articles_to_persist:
+        try:
+            persist_to_kb(articles_to_persist, region or 'global')
+        except Exception as e:
+            # Never let KB enrichment crash the signal pipeline
+            print(f'[query_all_sources] KB persist failed (non-fatal): {str(e)}')
+
+    # ── Step 6: Calculate signal_confidence ──────────────────────────────────
     # Replaces the Lambda's count-based confidence with relevance-aware scoring.
     # This fixes the Wagner bug where 13 irrelevant events = 0.75 confidence.
 
@@ -293,7 +401,7 @@ def query_all_sources(
         # 3+ sources corroborating — high confidence
         confidence = 0.9
 
-    # ── Step 6: Build source summary for transparency ─────────────────────────
+    # ── Step 7: Build source summary for transparency ─────────────────────────
     source_summary = {
         'GDELT':      gdelt_count,
         'GDELT_DOC':  gdelt_doc_count,
@@ -303,7 +411,7 @@ def query_all_sources(
         'deduplicated_count': len(deduplicated)
     }
 
-    # ── Step 7: Return merged result ─────────────────────────────────────────
+    # ── Step 8: Return merged result ─────────────────────────────────────────
     return json.dumps({
         'signal_confidence': confidence,
         'total_events':      total_events,

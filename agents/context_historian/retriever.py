@@ -1,7 +1,9 @@
 import pickle
 import boto3
 import json
+import re
 import networkx as nx # type: ignore
+from datetime import date, timedelta
 from typing import List, Dict
 from agents.context_historian.wikidata_client import (
     query_wikidata,
@@ -201,6 +203,28 @@ def temporal_retrieve(query: str, signal_summary: str = '') -> List[dict]:
 
 # ── VECTOR RETRIEVER ─────────────────────────────────────────────────────────
 
+def should_graduate_to_structural(chunk_text: str) -> bool:
+    """
+    Return True if an operational_signal chunk is old enough to be treated
+    as structural_context (EVENT_DATE >= 7 days ago).
+
+    Graduation happens at read time — the S3 file is not modified.
+    The synthesiser sees a structural_context tag and uses the chunk
+    freely as background knowledge rather than corroborating signal.
+    """
+    if 'DOCUMENT_TYPE: operational_signal' not in chunk_text:
+        return False
+    date_match = re.search(r'EVENT_DATE:\s*(\d{4}-\d{2}-\d{2})', chunk_text)
+    if not date_match:
+        return False
+    try:
+        event_date  = date.fromisoformat(date_match.group(1))
+        cutoff_date = date.today() - timedelta(days=7)
+        return event_date <= cutoff_date
+    except ValueError:
+        return False
+
+
 def vector_retrieve(query: str, signal_summary: str = '') -> List[dict]:
     """
     Query the Bedrock Knowledge Base (WGLUOKITSP) using hybrid search.
@@ -245,6 +269,15 @@ def vector_retrieve(query: str, signal_summary: str = '') -> List[dict]:
             continue
 
         content = result.get('content', {}).get('text', '')
+
+        # Promote aged operational_signal chunks to structural_context at read time.
+        # S3 file is unchanged — tag swap happens in memory only.
+        if should_graduate_to_structural(content):
+            content = content.replace(
+                'DOCUMENT_TYPE: operational_signal',
+                'DOCUMENT_TYPE: structural_context'
+            )
+
         # Source URI lives inside location → s3Location → uri
         source = (
             result.get('location', {})
