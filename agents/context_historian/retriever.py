@@ -265,7 +265,7 @@ def vector_retrieve(query: str, signal_summary: str = '') -> List[dict]:
         # Apply minimum score threshold — discard noise
         # Lowered from 0.65 on Day 10 evaluation —
         # 0 chunks returned across 5 queries at 0.65
-        if score < 0.50:
+        if score < 0.30:
             continue
 
         content = result.get('content', {}).get('text', '')

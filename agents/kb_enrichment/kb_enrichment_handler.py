@@ -183,15 +183,22 @@ def fetch_reliefweb(region: str) -> List[dict]:
         for item in response.json().get('data', []):
             fields = item.get('fields', {})
 
-            # Date is nested: {"date": {"created": "2026-05-10T..."}}
+            # Date is nested: {"date": {"original": "2026-05-10T...", "created": "..."}}
+            # Use original (publication date) not created (ReliefWeb ingestion date).
+            # created is always today — original reflects when the report was published.
             date_obj = fields.get('date', {})
             pub_date = (
-                date_obj.get('created', '')[:10]
+                (date_obj.get('original') or date_obj.get('created', ''))[:10]
                 if isinstance(date_obj, dict) else ''
             )
 
-            # Skip articles newer than 7 days
-            if not is_old_enough_for_kb(pub_date):
+            # ReliefWeb situation reports are formal settled documents by definition.
+            # Use 3-day lag instead of 7 — they are not breaking news.
+            cutoff = date.today() - timedelta(days=3)
+            try:
+                if date.fromisoformat(pub_date) > cutoff:
+                    continue
+            except (ValueError, TypeError):
                 continue
 
             # Strip HTML tags from body text

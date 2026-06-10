@@ -127,10 +127,13 @@ def query_reliefweb(query: str, country: str = '') -> List[dict]:
         title = fields.get('title', 'No title')
 
         # Extract date — ReliefWeb returns date as nested dict
-        # Structure: { "date": { "created": "2026-04-20T00:00:00+00:00" } }
+        # Use original (publication date) not created (ReliefWeb ingestion date).
+        # created is always the day ReliefWeb indexed it — original is when published.
         date_obj = fields.get('date', {})
-        raw_date = date_obj.get('created', '') if isinstance(date_obj, dict) else ''
-        # Take just the date part — first 10 chars of ISO 8601 string
+        raw_date = (
+            (date_obj.get('original') or date_obj.get('created', ''))
+            if isinstance(date_obj, dict) else ''
+        )
         date_str = raw_date[:10] if raw_date else 'unknown'
 
         # Extract source organisation name
