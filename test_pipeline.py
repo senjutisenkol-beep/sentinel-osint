@@ -16,7 +16,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 # cosmetic only, does not affect pipeline behaviour
 warnings.filterwarnings('ignore', category=UserWarning)
 
-from orchestration.pipeline import pipeline
+from orchestration.pipeline import pipeline, generate_flash_report, should_red_team
 
 # ── Initial state — all SentinelState fields must be present ─────────────────
 initial_state = {
@@ -71,6 +71,10 @@ print('='*60 + '\n')
 
 print('► Running pipeline...\n')
 result = pipeline.invoke(initial_state)
+
+# Generate Flash Report — terminal pipeline output
+flash_report = generate_flash_report(result)
+print(f'[pipeline] Flash Report: {flash_report["report_id"]}')
 
 # ── Routing decision ──────────────────────────────────────────────────────────
 print(f"Routing decision: confidence={result['signal_confidence']} → ", end='')
@@ -133,7 +137,7 @@ print(f'\nThreat rationale:')
 print(result['threat_rationale'])
 
 print()
-if result['threat_score'] >= 0.7:
+if should_red_team(result):
     print('─'*60)
     print('AGENT 4 — RED TEAM')
     print('─'*60)
@@ -148,7 +152,18 @@ else:
     print('─'*60)
     print('AGENT 4 — RED TEAM')
     print('─'*60)
-    print(f'Skipped — threat_score {result["threat_score"]:.3f} < 0.7 threshold')
+    print(
+        f'Skipped — threat_score {result["threat_score"]:.3f} < 0.7 '
+        f'and threat_level {result["threat_level"]!r} != HIGH'
+    )
+
+print()
+print('='*60)
+print(f'Flash Report ID: {flash_report["report_id"]}')
+print('Data gaps:')
+for gap in flash_report.get('data_gaps', []):
+    print(f'  • {gap}')
+print('='*60)
 
 # ── Pass/fail ─────────────────────────────────────────────────────────────────
 print('\n' + '='*60)

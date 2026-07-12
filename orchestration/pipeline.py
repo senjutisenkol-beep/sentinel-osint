@@ -44,6 +44,27 @@ from agents.context_historian.retriever import (
 from agents.context_historian.synthesizer import synthesise
 from agents.threat_analyst.threat_analyst import assess_threat
 from agents.red_team.red_team import challenge_assessment
+from agents.flash_report.flash_report import generate_flash_report
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUTING — SHARED PREDICATES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def should_red_team(state: dict) -> bool:
+    """
+    Single source of truth for whether Agent 4 fires.
+
+    Agent 4 challenges assessments that CLAIM danger.
+    The claim lives in threat_level (Claude's analytical
+    judgment), not in threat_score (the arithmetic
+    aggregate). A HIGH label below the score threshold
+    is exactly the case that most needs challenging.
+    """
+    return (
+        state.get('threat_level', '') == 'HIGH'
+        or state.get('threat_score', 0.0) >= 0.7
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -275,11 +296,13 @@ def route_after_threat(state: SentinelState) -> str:
     """
     Agentic loop (Change 3): if threat_confidence is LOW and loop budget
     allows, loop back to Agent 2 for more context before finalising.
-    Otherwise route by threat_score as normal.
+    Otherwise route to red_team if threat_score >= 0.7 OR threat_level
+    is HIGH — either signal alone is sufficient to trigger challenge.
     """
     if state.get('threat_confidence') == 'LOW' and state.get('loop_count', 0) < 2:
         return 'context_historian'
-    if state.get('threat_score', 0.0) >= 0.7:
+
+    if should_red_team(state):
         return 'red_team'
     return 'end'
 
