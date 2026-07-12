@@ -1,0 +1,47 @@
+{
+  "report_id": "74442d9d-87f3-42e7-8046-25df41bca39f",
+  "generated_at": "2026-07-12T23:12:58.515388+00:00",
+  "session_id": "145932c7-b461-4302-91ac-d3a2e3368d24",
+  "analyst_query": "Israel Gaza military offensive 2026",
+  "executive_summary": "Assessment of \"Israel Gaza military offensive 2026\" yields a HIGH threat designation with LOW analytical confidence. Despite a low-fidelity evidence base, the structural indicators consistently point to an active, high-intensity conflict environment in Gaza through at least early June 2026. UNRWA Situation Report #2...",
+  "signal_confidence": 0.1,
+  "signal_summary": "",
+  "gdelt_event_count": 0,
+  "context_confidence": 0.25,
+  "historical_context": "The available evidence indicates that as of late May to early June 2026, a significant humanitarian crisis continues in the Gaza Strip and the West Bank, including East Jerusalem. UNRWA Situation Report #224, covering the period 26 May to 2 June 2026, documents ongoing conditions consistent with active or recent military operations, though the specific operational details of Israeli military activity during this period are not fully captured in the retrieved chunks. A parallel UNRWA Lebanon Emergency Response report (Situation Report #12, covering 20 May to 2 June 2026) notes that a 10-day ceasefire between Israel and Lebanon came into effect on 16 April 2026 and was subsequently extended by three weeks on 23 April, suggesting a multi-front dynamic involving Israeli military posture across the region during this period.\n\n No structured graph relationships or chronological event chains were available for the Gaza-Israel query. The knowledge graph's temporal and thematic coverage is noted as Sahel-focused, representing a collection gap for this region. As a result, no actor-level network data, no confirmed escalation timelines, and no historical sequencing of Israeli military operations in Gaza during 2026 can be established from the structured knowledge base at this time. This significantly limits the ability to characterise the trajectory or intensity of the offensive.\n\n The document evidence, drawn exclusively from UNRWA humanitarian reporting ingested on 9 June 2026, provides indirect but meaningful indicators of ongoing crisis conditions in Gaza and the West Bank through at least 2 June 2026. The appearance of the same UNRWA Situation Report #224 indexed under multiple regions (Mali, Iran, Gaza) suggests metadata classification anomalies in the knowledge base rather than substantive multi-regional relevance. The Lebanon ceasefire extension noted in Chunk 4 implies that Israeli military engagement remained active on multiple fronts into at least late April 2026. Analysts should treat this assessment as low-fidelity due to the absence of direct military operational reporting, with confidence constrained by heavy reliance on a single humanitarian source.",
+  "channel_activation": {
+    "graph_count": 0,
+    "temporal_count": 1,
+    "vector_count": 4,
+    "gdelt_events": 0
+  },
+  "threat_level": "HIGH",
+  "threat_score": 0.35,
+  "threat_confidence": "LOW",
+  "threat_rationale": "Despite a low-fidelity evidence base, the structural indicators consistently point to an active, high-intensity conflict environment in Gaza through at least early June 2026. UNRWA Situation Report #224 documents ongoing humanitarian crisis conditions consistent with active or recent military operations, and the parallel Lebanon ceasefire extension through late April 2026 confirms Israeli military engagement remained active on multiple fronts simultaneously. The wide uncertainty range (0.05\u20130.65) reflects severe data gaps rather than an absence of conflict \u2014 the humanitarian reporting pattern, multi-front Israeli military posture, and absence of any peace or ceasefire signals specific to Gaza collectively support a HIGH threat designation under analytical judgment rather than mechanical scoring.",
+  "key_indicators": [
+    "UNRWA Situation Report #224 (26 May \u2013 2 June 2026) documents ongoing humanitarian crisis conditions in Gaza and the West Bank consistent with active or recent military operations",
+    "Israel\u2013Lebanon ceasefire came into effect 16 April 2026 and required extension on 23 April, indicating sustained Israeli multi-front military engagement into late April\u2013May 2026 and elevated regional escalation risk",
+    "Zero Goldstein-scale events retrieved and no Gaza-specific structured graph data available \u2014 representing a critical collection gap that prevents de-escalation inference, not evidence of reduced conflict intensity"
+  ],
+  "revised_threat_score": 0.28,
+  "revised_confidence": "LOW",
+  "red_team_assessment": "The assessment rests almost entirely on a single source \u2014 UNRWA Situation Report #224 \u2014 interpreted through indirect inference rather than direct operational evidence of ongoing Israeli military activity in Gaza. The Lebanon ceasefire indicator is logically strained: a ceasefire extension on 23 April 2026 could equally signal de-escalation consolidation on that front, not proof of sustained multi-front offensive tempo in Gaza. Critically, the assessment acknowledges zero Goldstein-scale events and no Gaza-specific structured data, yet still asserts HIGH threat level \u2014 this is a confidence claim built on a void, not on degraded signal.",
+  "counter_evidence": [
+    "Single-source dependency: the entire threat rationale collapses onto UNRWA Sit Rep #224, a humanitarian coordination document \u2014 not a conflict monitoring or military activity report. UNRWA reports document humanitarian conditions (displacement, aid access, casualties), which can persist and even worsen in post-active-conflict stabilization phases or blockade conditions without ongoing kinetic operations. The assessment conflates humanitarian crisis with active military offensive without independent corroboration.",
+    "The Lebanon ceasefire argument cuts both ways: a ceasefire that entered into force 16 April and was extended 23 April 2026 is at least as consistent with Israeli military disengagement from a second front \u2014 reducing rather than sustaining multi-front pressure \u2014 as it is with continued engagement. The assessment cherry-picks the 'extension required' detail to imply instability while ignoring that a formal ceasefire framework being maintained is structurally a de-escalation indicator.",
+    "Confidence inflation on absence-of-evidence reasoning: Agent 3 explicitly reframes zero GDELT events and no structured graph data as 'a critical collection gap that prevents de-escalation inference' \u2014 this is unfalsifiable circular logic. By this reasoning, no amount of missing evidence could ever lower the threat score. A sound analytical framework must assign some probability mass to the possibility that sparse data reflects reduced conflict intensity, not merely collection failure. The LOW confidence label is appropriate but contradicts assigning a HIGH threat designation; the two claims are epistemically inconsistent."
+  ],
+  "confidence_scores": {
+    "signal": 0.1,
+    "context": 0.25,
+    "threat": "LOW",
+    "revised": "LOW"
+  },
+  "data_gaps": [
+    "No live GDELT events found \u2014 signal based on base confidence only",
+    "Knowledge graph sparse for this region \u2014 structural relationships limited",
+    "No temporal event chain found \u2014 causal history unavailable for this region"
+  ],
+  "loop_count": 2
+}

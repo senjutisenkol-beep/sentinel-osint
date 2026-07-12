@@ -1,0 +1,44 @@
+{
+  "report_id": "eb33947f-edde-499d-b184-fa8e68903ff1",
+  "generated_at": "2026-06-10T01:10:05.741294+00:00",
+  "session_id": "426c784d-fc11-46ec-8cf3-e71b197f9b67",
+  "analyst_query": "Israel Gaza military offensive 2026",
+  "executive_summary": "Assessment of \"Israel Gaza military offensive 2026\" yields a HIGH threat designation with LOW analytical confidence. Despite extremely limited structured intelligence data (zero Goldstein-scored events, no graph relationships, and a point estimate of only 0.34 with a wide uncertainty range of 0.04\u20130.64), the availab...",
+  "signal_confidence": 0.1,
+  "signal_summary": "",
+  "gdelt_event_count": 0,
+  "context_confidence": 0.2,
+  "historical_context": "No direct signal intelligence is available for the Israel-Gaza military offensive in 2026. Agent 1 returned no signal summary, and the knowledge graph contains no structured relationships or temporal event chains pertaining to Israeli military operations in Gaza. The graph's temporal coverage is noted as Sahel-focused, representing a confirmed collection gap for this query.\n\nNo graph relationships or chronological event data were retrieved for query entities related to Israel or Gaza military operations. This prevents any structured assessment of actor networks, escalation timelines, or operational patterns from structured knowledge sources. The absence of these data channels significantly limits analytical confidence.\n\nThe document evidence, drawn from UNRWA Situation Report #224 (covering 26 May \u2013 2 June 2026, ingested 9 June 2026), confirms that a humanitarian crisis is ongoing in both the Gaza Strip and the West Bank including East Jerusalem as of early June 2026. A separate UNRWA document (Situation Report #12 on the Lebanon Emergency Response, dated 4 June 2026) references a 10-day Israel-Lebanon ceasefire that came into effect on 16 April 2026 and was subsequently extended by three weeks on 23 April, suggesting active multi-front Israeli military engagement during this period. However, the document chunks retrieved are truncated and do not provide specific details on Israeli ground operations, casualty figures, or tactical developments within Gaza itself. Analytical conclusions must therefore be treated as preliminary pending fuller document retrieval.",
+  "channel_activation": {
+    "graph_count": 0,
+    "temporal_count": 1,
+    "vector_count": 4,
+    "gdelt_events": 0
+  },
+  "threat_level": "HIGH",
+  "threat_score": 0.34,
+  "threat_confidence": "LOW",
+  "threat_rationale": "Despite extremely limited structured intelligence data (zero Goldstein-scored events, no graph relationships, and a point estimate of only 0.34 with a wide uncertainty range of 0.04\u20130.64), the available documentary evidence from UNRWA Situation Report #224 (26 May\u20132 June 2026) confirms an ongoing humanitarian crisis in Gaza, which is a strong structural indicator of active military operations at scale. The concurrent Israel-Lebanon ceasefire documented in UNRWA Lebanon Situation Report #12 \u2014 initiated 16 April 2026 and extended \u2014 further confirms active multi-front Israeli military engagement during this period, consistent with historical Israeli operational patterns following major escalations. The threat level is assessed as HIGH not on the basis of the quantitative score, which is data-deficient, but on the convergence of confirmed humanitarian crisis indicators and multi-front military activity that is structurally consistent with an ongoing high-intensity military offensive.",
+  "key_indicators": [
+    "UNRWA Situation Report #224 (26 May\u20132 June 2026) confirms ongoing humanitarian crisis in Gaza Strip and West Bank including East Jerusalem as of early June 2026, consistent with active high-intensity military operations",
+    "UNRWA Lebanon Emergency Situation Report #12 documents a 10-day Israel-Lebanon ceasefire effective 16 April 2026, extended three weeks on 23 April, indicating active multi-front Israeli military engagement concurrent with Gaza operations",
+    "Wide uncertainty range (0.04\u20130.64) and zero Goldstein-scored events reflect a critical collection gap \u2014 the absence of structured signal data should not be interpreted as absence of conflict, as document evidence independently corroborates ongoing crisis conditions"
+  ],
+  "revised_threat_score": 0.0,
+  "revised_confidence": "",
+  "red_team_assessment": "",
+  "counter_evidence": [],
+  "confidence_scores": {
+    "signal": 0.1,
+    "context": 0.2,
+    "threat": "LOW",
+    "revised": ""
+  },
+  "data_gaps": [
+    "No live GDELT events found \u2014 signal based on base confidence only",
+    "Knowledge graph sparse for this region \u2014 structural relationships limited",
+    "No temporal event chain found \u2014 causal history unavailable for this region",
+    "Red team not triggered \u2014 threat score 0.34 below 0.70 threshold"
+  ],
+  "loop_count": 2
+}

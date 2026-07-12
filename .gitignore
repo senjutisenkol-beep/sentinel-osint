@@ -28,6 +28,7 @@ venv/
 # Lambda build artifacts
 *.zip
 lambda_build/
+lambda_build_kb/
 package/
 
 # Local data / research files
