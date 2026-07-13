@@ -104,6 +104,119 @@ def build_executive_summary(state: dict) -> str:
     return f'{sentence1} {sentence2}'
 
 
+def build_narrative_prompt(state: dict) -> str:
+    """
+    Assemble the prompt for the narrative Flash Report.
+    Feeds Claude the full pipeline output and asks for
+    an analyst-grade prose product.
+    """
+    return f"""You are a senior geopolitical intelligence
+analyst writing a Flash Report for a decision-maker who has
+not seen any of the underlying data.
+
+Write a structured prose intelligence report. Do not use
+bullet points. Do not restate the raw numbers as numbers --
+translate them into analytical language.
+
+ANALYST QUERY:
+{state.get('analyst_query', '')}
+
+LIVE SIGNAL (Agent 1):
+confidence {state.get('signal_confidence', 0.0)}
+{state.get('signal_summary', '')}
+
+HISTORICAL CONTEXT (Agent 2):
+confidence {state.get('context_confidence', 0.0)}
+channels -- graph: {len(state.get('graph_context', []))},
+temporal: {len(state.get('temporal_context', []))},
+vector: {len(state.get('vector_context', []))}
+{state.get('historian_summary', '')}
+
+THREAT ASSESSMENT (Agent 3):
+level {state.get('threat_level', 'UNKNOWN')},
+score {state.get('threat_score', 0.0)},
+confidence {state.get('threat_confidence', 'LOW')}
+{state.get('threat_rationale', '')}
+key indicators: {state.get('key_indicators', [])}
+
+RED TEAM CHALLENGE (Agent 4):
+{state.get('red_team_assessment', 'Not triggered -- assessment was not flagged as high-threat.')}
+counter-evidence: {state.get('counter_evidence', [])}
+revised score: {state.get('revised_threat_score', 'n/a')}
+
+Write the report with these sections, as flowing prose under
+each heading:
+
+## Bottom Line
+Two to three sentences. What is the assessment, and how much
+should the reader trust it? State the threat level and be
+explicit about confidence. If confidence is low, say so
+plainly in the first paragraph -- do not bury it.
+
+## Current Signal
+What the live data actually shows. Be specific about named
+actors, locations and dates. If the live signal did not
+directly address the query, say so explicitly rather than
+implying coverage that does not exist.
+
+## Historical Context
+How the situation developed. Draw the causal chain. Name the
+actors and their relationships.
+
+## Assessment
+The analytical judgment and the reasoning behind it. Explain
+WHY the evidence supports this threat level.
+
+## Challenge and Counter-Evidence
+If the red team ran, summarise its critique honestly and
+explain how it changes the assessment. If it did not run,
+state that the assessment has not undergone adversarial
+review.
+
+## Intelligence Gaps
+What is missing, and what the reader should NOT conclude
+from this report. Be concrete about which knowledge types
+were absent -- structural relationships, causal history, or
+documentary evidence.
+
+Write in measured analytical register. Hedge where the
+evidence is thin. Never fabricate specifics not present in
+the data above. If a section has no supporting data, say so
+rather than padding it."""
+
+
+def generate_narrative(state: dict) -> str:
+    """
+    Single invoke_model() call producing the prose report.
+    Returns the narrative string, or a fallback message
+    on failure -- must never crash the pipeline.
+    """
+    try:
+        client = boto3.client(
+            'bedrock-runtime', region_name='us-east-1'
+        )
+        body = {
+            'anthropic_version': 'bedrock-2023-05-31',
+            'max_tokens': 2000,
+            'messages': [{
+                'role': 'user',
+                'content': build_narrative_prompt(state)
+            }]
+        }
+        resp = client.invoke_model(
+            modelId='us.anthropic.claude-sonnet-4-6',
+            body=json.dumps(body)
+        )
+        parsed = json.loads(resp['body'].read())
+        return parsed['content'][0]['text']
+    except Exception as e:
+        print(f'[flash_report] Narrative failed: {str(e)}')
+        return (
+            'Narrative generation unavailable. '
+            'See structured fields for the assessment.'
+        )
+
+
 def generate_flash_report(state: dict) -> dict:
     """
     Generate the terminal Flash Report for a
@@ -190,6 +303,11 @@ def generate_flash_report(state: dict) -> dict:
         'loop_count': state.get('loop_count', 0),
     }
 
+    # Prose intelligence product for human readers.
+    # The structured fields above remain the machine-
+    # readable source of truth.
+    report['narrative_report'] = generate_narrative(state)
+
     # ── Save locally ──────────────────────────────
     try:
         os.makedirs(LOCAL_DIR, exist_ok=True)
@@ -201,6 +319,29 @@ def generate_flash_report(state: dict) -> dict:
         print(f'[flash_report] Saved locally: {local_path}')
     except Exception as e:
         print(f'[flash_report] Local save failed: {str(e)}')
+
+    # ── Save markdown ─────────────────────────────
+    try:
+        md_path = os.path.join(
+            LOCAL_DIR, f'{report_id}.md'
+        )
+        with open(md_path, 'w', encoding='utf-8') as f:
+            f.write(f"# Flash Report\n\n")
+            f.write(f"**Report ID:** {report_id}  \n")
+            f.write(
+                f"**Generated:** {report['generated_at']}  \n"
+            )
+            f.write(
+                f"**Query:** "
+                f"{report['analyst_query']}\n\n---\n\n"
+            )
+            f.write(report['narrative_report'])
+            f.write("\n\n---\n\n## Data Gaps\n\n")
+            for gap in report['data_gaps']:
+                f.write(f"- {gap}\n")
+        print(f'[flash_report] Markdown: {md_path}')
+    except Exception as e:
+        print(f'[flash_report] Markdown save failed: {str(e)}')
 
     # ── Save to S3 ────────────────────────────────
     try:

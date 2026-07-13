@@ -165,6 +165,12 @@ for gap in flash_report.get('data_gaps', []):
     print(f'  • {gap}')
 print('='*60)
 
+print('\n' + '='*60)
+print('FLASH REPORT — NARRATIVE (Claude prose)')
+print('='*60)
+print(flash_report['narrative_report'])
+print('='*60)
+
 # ── Pass/fail ─────────────────────────────────────────────────────────────────
 print('\n' + '='*60)
 agent1_ok = result['signal_confidence'] > 0.0
