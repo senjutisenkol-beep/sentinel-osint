@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# agents/mcp_server/wikidata_client.py
+# agents/context_historian/wikidata_client.py
 #
 # Queries Wikidata SPARQL endpoint for structured geopolitical
 # relationships. Used as a dynamic fallback when the local
