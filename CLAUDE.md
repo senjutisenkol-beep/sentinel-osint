@@ -74,7 +74,7 @@ Full day-by-day notes: `docs/progress/week1-2.md`
 | 13 | COMPLETE | Agent 4 Red Team — adversarial challenge, score can only decrease, fires on threat_score >= 0.7 |
 | 14 | COMPLETE | All 4 agents end-to-end on live data — Israel/Gaza 0.732 → 0.58 after Red Team |
 | 15 | COMPLETE | Agentic loop — 3 loop-back behaviours, loop_count guard, pipeline is no longer a DAG |
-| 16 | COMPLETE | State-hygiene fix — Agent 1 writes signal_failure_reason + errors on ALL branches; run_pipeline() wrapper; branch unit test |
+| 16 | COMPLETE | State-hygiene fix — Agent 1 writes signal_failure_reason + errors on ALL branches; run_pipeline() wrapper; branch unit test; episodic run log (Day 17 calibration prep) |
 
 ## Day 16 — Agent 1 State-Hygiene Fix
 
@@ -114,10 +114,36 @@ clarifying question (`clarification_requested`) from other non-JSON output
 Only `signal_monitor_node` (the only multi-branch node) had the bug.
 
 ### run_pipeline() wrapper
-Added single entry point `run_pipeline(analyst_query, session_id=None)` in
-pipeline.py — owns Flash Report generation, latency measurement, and state
-seeding (`signal_failure_reason: ''`). Callers use this, not `pipeline.invoke()`.
-`test_pipeline.py` refactored to call it.
+Single entry point in pipeline.py — owns Flash Report generation, latency
+measurement, state seeding (`signal_failure_reason: ''`), and episode
+logging. Callers use this, not `pipeline.invoke()`. `test_pipeline.py`
+refactored to call it. Signature:
+`run_pipeline(analyst_query, session_id=None, condition='production')`.
+`condition` tags the episode log so the Day 17 harness can label runs by
+retrieval condition; it defaults to 'production' so existing callers are
+unaffected. `save_episode()` is called after the Flash Report block, once
+`result['report_id']` is set.
+
+### Episodic run log (Day 17 calibration prep)
+New `agents/episodic/episode_log.py` — the system's own run history, one
+JSON object per line (JSONL) appended after every run. Doubles as the Day 17
+calibration dataset.
+- `build_episode(result, latency, condition)` — captures query, channel
+  counts (graph/temporal/vector/gdelt), confidences, threat decision,
+  red-team revision, loop_count, latency, report_id, and
+  `human_quality_score: null` (the calibration target, filled by a human later).
+  `report_id` read from state (`result['report_id']`, fallback
+  `result['flash_report']['report_id']`).
+- `save_episode(...)` — write-only, NEVER raises (cannot break a run).
+  Appends to `LOG_PATH = episodes/episode_log.jsonl`.
+- `load_episodes(condition=None)` — reads the log into a pandas DataFrame,
+  optional condition filter; skips corrupt lines; empty DataFrame if no log.
+- pandas imported LAZILY inside `load_episodes()` (NOT module-level) so the
+  write path keeps its never-break-a-run contract. Added `pandas>=2.0.0` to
+  requirements.txt.
+- `episodes/*.jsonl` is gitignored (runtime data — regenerated per env).
+- Verified: two runs → two appended lines; `load_episodes()` returns both
+  rows tagged `condition='production'`.
 
 ### Tests
 - `test_signal_branches.py` (NEW) — pure unit test, no AWS. 18 checks across
