@@ -1,0 +1,46 @@
+{
+  "report_id": "63246f70-0dd4-4565-9ac0-6bdbf095c33e",
+  "generated_at": "2026-07-26T21:07:29.986753+00:00",
+  "session_id": "e74fce91-332a-406b-8b55-ff4f7ef12cc3",
+  "analyst_query": "describe the geopolitical unrest India is facing",
+  "executive_summary": "Assessment of \"describe the geopolitical unrest India is facing\" yields a UNKNOWN threat designation with LOW analytical confidence. No usable live signal, no India-specific historical graph data, and no relevant document evidence were retrieved in this query cycle. The weighted evidence score of 0.31 with an uncertainty range of 0...",
+  "signal_confidence": 0.1,
+  "signal_summary": "Agent 1 call failed: AWSHTTPSConnectionPool(host='bedrock-agent-runtime.us-east-1.amazonaws.com', port=443): Read timed out.. No sources were queried.",
+  "gdelt_event_count": 0,
+  "context_confidence": 0.07,
+  "historical_context": "CURRENT SITUATION: The primary signal source (Agent 1) failed due to a connection timeout, returning no usable intelligence on India's geopolitical unrest. No structured signal data is available to characterize the current security environment India faces, including tensions along its borders with Pakistan or China, internal insurgencies, or domestic political instability. An assessment based on live signal is therefore not possible from this query cycle.\n\nHISTORICAL CONTEXT: The graph relationships channel returned no data relevant to India. The chronological events retrieved are entirely focused on the Sahel region of West Africa \u2014 specifically the evolution of jihadist factions (GSPC/AQIM, ISIS splinter groups) and political instability in Mali, including two military coups in 2020 and 2021 and the expulsion of French forces in August 2022. None of these events bear direct relevance to India's geopolitical situation.\n\nDOCUMENT EVIDENCE: The sole document chunk retrieved is a December 2025 ACLED global conflict trends report. While this source may contain relevant data on South Asia, the retrieved chunk pertains only to a general introduction and an image depicting a conflict-affected civilian scene with no geographic specificity to India. No named Indian actors, locations, or conflict dynamics appear in the retrieved document context. In sum, the available context is almost entirely misaligned with the analyst query, and no reliable assessment of India's geopolitical unrest can be produced from these sources without risking fabrication.",
+  "channel_activation": {
+    "graph_count": 0,
+    "temporal_count": 7,
+    "vector_count": 1,
+    "gdelt_events": 0
+  },
+  "threat_level": "UNKNOWN",
+  "threat_score": 0.314,
+  "threat_confidence": "LOW",
+  "threat_rationale": "No usable live signal, no India-specific historical graph data, and no relevant document evidence were retrieved in this query cycle. The weighted evidence score of 0.31 with an uncertainty range of 0.01 to 0.61 is entirely a product of low base confidence values and carries no substantive informational content about India's actual security environment. Producing a threat level under these conditions would require fabrication, which this assessment explicitly refuses to do.",
+  "key_indicators": [
+    "Agent 1 live feed failed with a connection timeout \u2014 zero current events retrieved for India",
+    "Historical context data returned is exclusively about the Sahel region (Mali coups, AQIM/ISIS factions) and has no bearing on South Asia",
+    "The sole retrieved document chunk from the December 2025 ACLED report contains no India-specific actors, locations, or conflict dynamics",
+    "Goldstein scale contributed zero weight to the score \u2014 no conflict intensity signal of any kind is present",
+    "Uncertainty range of 0.01 to 0.61 is extremely wide, confirming near-total data absence rather than a genuine low-threat signal"
+  ],
+  "revised_threat_score": 0.314,
+  "revised_confidence": "LOW",
+  "red_team_assessment": "",
+  "counter_evidence": [],
+  "confidence_scores": {
+    "signal": 0.1,
+    "context": 0.07,
+    "threat": "LOW",
+    "revised": "LOW"
+  },
+  "data_gaps": [
+    "No live GDELT events found \u2014 signal based on base confidence only",
+    "Knowledge graph sparse for this region \u2014 structural relationships limited",
+    "Red team not triggered \u2014 assessment was not flagged as high-threat and did not undergo adversarial review"
+  ],
+  "loop_count": 2,
+  "narrative_report": "# FLASH REPORT: Geopolitical Unrest in India\n**Classification: Analytical Draft | Confidence: LOW | Threat Level: UNKNOWN**\n\n---\n\n## Bottom Line\n\nThis report cannot produce a credible assessment of the geopolitical unrest India currently faces. All three primary intelligence channels failed to return India-specific data in this query cycle, leaving the analytical foundation empty. The reader should treat this document not as an intelligence product but as a transparent accounting of a collection failure \u2014 and should not draw any conclusions about India's security environment from it.\n\n---\n\n## Current Signal\n\nThe live signal feed failed entirely due to a connection timeout before any data could be retrieved. No current events, named actors, locations, incident dates, or conflict dynamics relating to India were collected. This is a technical collection failure, not a finding of low activity \u2014 the absence of data here reflects a broken pipeline, not a quiet threat environment. Any characterization of what India's security landscape looks like today would require fabrication, which this assessment declines to provide.\n\n---\n\n## Historical Context\n\nThe historical context channel returned data that is geographically and analytically disconnected from the query. The events retrieved concern the Sahel region of West Africa \u2014 specifically the fragmentation of jihadist networks across the Sahel, a sequence of military coups in Mali in the early part of this decade, and the subsequent expulsion of French military forces. While these are analytically significant events in their own right, they bear no causal or structural relationship to India's security environment and cannot be repurposed to address this query. The graph relationships channel, which would normally surface structural connections between actors and institutions relevant to India, returned nothing of substance. No historical causal chain for India can be constructed from what was retrieved.\n\n---\n\n## Assessment\n\nBecause no usable evidence was recovered across any channel, no analytical judgment about India's threat level can be responsibly rendered. The threat score generated by the system carries no substantive meaning in this instance \u2014 it is a mathematical artifact of low base confidence values rather than a reflection of any real signal about South Asian security dynamics. An analyst who cited that score as evidence of a low or moderate threat environment would be misrepresenting the state of the collection. The honest assessment is that the system does not know, and the reader should not infer stability, escalation, or anything in between from this report cycle.\n\n---\n\n## Challenge and Counter-Evidence\n\nThe adversarial review mechanism was not triggered, as the assessment did not reach the threshold that would activate red team scrutiny. As a consequence, the analytical conclusions in this report \u2014 limited as they are \u2014 have not undergone adversarial challenge. The reader should note that the absence of red team critique here reflects the absence of a substantive assessment to critique, not a clean bill of analytical health.\n\n---\n\n## Intelligence Gaps\n\nThe gaps in this cycle are near-total and span all three knowledge types the system is designed to provide. On structural relationships, no graph data linking Indian state actors, armed groups, neighboring powers, or political institutions was returned \u2014 meaning the reader has no map of who the relevant players are or how they relate to one another. On causal history, the chronological record retrieved was entirely misdirected to West Africa, leaving the developmental arc of India's border tensions, internal security challenges, and domestic political pressures entirely unaddressed. On documentary evidence, the sole retrieved document chunk from a recent global conflict trends report contained no India-specific content whatsoever.\n\nThe reader should specifically avoid concluding that India is stable or that its threat environment is unremarkable simply because this report contains no alarming findings. Absence of evidence is not evidence of absence, and in this case the absence is explained entirely by a collection failure. A follow-on query cycle with a restored live feed and a targeted retrieval strategy focused on South Asia would be required before any analytical judgment could be offered with integrity."
+}
