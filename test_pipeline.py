@@ -8,7 +8,6 @@
 import sys
 import uuid
 import warnings
-from datetime import datetime, timezone
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -16,65 +15,21 @@ sys.stdout.reconfigure(encoding='utf-8')
 # cosmetic only, does not affect pipeline behaviour
 warnings.filterwarnings('ignore', category=UserWarning)
 
-from orchestration.pipeline import pipeline, generate_flash_report, should_red_team
-
-# ── Initial state — all SentinelState fields must be present ─────────────────
-initial_state = {
-    # Pipeline-level
-    'session_id':    str(uuid.uuid4()),
-    'analyst_query': 'Israel Gaza military offensive 2026',
-    'retrieved_at':  datetime.now(timezone.utc).isoformat(),
-
-    # Agent 1 defaults — overwritten by signal_monitor_node
-    'gdelt_events':      [],
-    'signal_confidence': 0.0,
-    'signal_summary':    '',
-
-    # Pipeline control
-    'abort':        False,
-    'abort_reason': '',
-
-    # Error tracking
-    'errors': [],
-
-    # Agentic loop control
-    'loop_count': 0,
-
-    # Agent 2 defaults — overwritten by context_historian_node
-    'graph_context':      [],
-    'temporal_context':   [],
-    'vector_context':     [],
-    'historian_summary':  '',
-    'context_confidence': 0.0,
-
-    # Agent 3 defaults — overwritten by threat_analyst_node
-    'threat_level':      '',
-    'threat_score':      0.0,
-    'threat_rationale':  '',
-    'key_indicators':    [],
-    'threat_confidence': '',
-
-    # Agent 4 defaults — overwritten by red_team_node (only when threat_score >= 0.7)
-    'red_team_assessment':  '',
-    'counter_evidence':     [],
-    'revised_threat_score': 0.0,
-    'revised_confidence':   '',
-}
+from orchestration.pipeline import run_pipeline, should_red_team
 
 # ── Run pipeline ──────────────────────────────────────────────────────────────
+analyst_query = 'Israel Gaza military offensive 2026'
+session_id    = str(uuid.uuid4())
+
 print('\n' + '='*60)
 print('SENTINEL-OSINT — END-TO-END TEST')
 print('='*60)
-print(f"Query:   {initial_state['analyst_query']}")
-print(f"Session: {initial_state['session_id']}")
+print(f"Query:   {analyst_query}")
+print(f"Session: {session_id}")
 print('='*60 + '\n')
 
 print('► Running pipeline...\n')
-result = pipeline.invoke(initial_state)
-
-# Generate Flash Report — terminal pipeline output
-flash_report = generate_flash_report(result)
-print(f'[pipeline] Flash Report: {flash_report["report_id"]}')
+result = run_pipeline(analyst_query, session_id=session_id)
 
 # ── Routing decision ──────────────────────────────────────────────────────────
 print(f"Routing decision: confidence={result['signal_confidence']} → ", end='')
@@ -159,16 +114,17 @@ else:
 
 print()
 print('='*60)
-print(f'Flash Report ID: {flash_report["report_id"]}')
+print(f'Flash Report ID: {result["report_id"]}')
+print(f'Total latency:   {result["total_latency"]:.1f}s')
 print('Data gaps:')
-for gap in flash_report.get('data_gaps', []):
+for gap in result['flash_report'].get('data_gaps', []):
     print(f'  • {gap}')
 print('='*60)
 
 print('\n' + '='*60)
 print('FLASH REPORT — NARRATIVE (Claude prose)')
 print('='*60)
-print(flash_report['narrative_report'])
+print(result['flash_report']['narrative_report'])
 print('='*60)
 
 # ── Pass/fail ─────────────────────────────────────────────────────────────────

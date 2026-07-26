@@ -31,6 +31,9 @@ lambda_build/
 lambda_build_kb/
 package/
 
+# Episodic run log — runtime data (append-only, regenerated per environment)
+episodes/*.jsonl
+
 # Local data / research files
 Learnings/
 Learnings.zip

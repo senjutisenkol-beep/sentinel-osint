@@ -11,6 +11,7 @@ class SentinelState(TypedDict):
     gdelt_events:      List[dict]
     signal_confidence: float
     signal_summary:    str
+    signal_failure_reason: str   # '' when Agent 1 succeeded
 
     # Pipeline control
     abort:             bool

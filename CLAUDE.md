@@ -74,6 +74,64 @@ Full day-by-day notes: `docs/progress/week1-2.md`
 | 13 | COMPLETE | Agent 4 Red Team — adversarial challenge, score can only decrease, fires on threat_score >= 0.7 |
 | 14 | COMPLETE | All 4 agents end-to-end on live data — Israel/Gaza 0.732 → 0.58 after Red Team |
 | 15 | COMPLETE | Agentic loop — 3 loop-back behaviours, loop_count guard, pipeline is no longer a DAG |
+| 16 | COMPLETE | State-hygiene fix — Agent 1 writes signal_failure_reason + errors on ALL branches; run_pipeline() wrapper; branch unit test |
+
+## Day 16 — Agent 1 State-Hygiene Fix
+
+### The bug
+`signal_monitor_node` has three return paths (success, `parse_failed`,
+`except`). `signal_failure_reason` was written on the `parse_failed`
+branch only. Because the node is re-enterable via the loop-back edge
+(`route_after_context → signal_monitor`), a reason set on a failed
+pass could survive **stale** into a later successful pass. LangGraph
+plain (non-reducer) fields use overwrite semantics, so a branch that
+omits a field leaves the prior value untouched. `errors` had the
+mirror-image gap (written everywhere except `parse_failed`).
+
+### The fix (orchestration/pipeline.py)
+All three branches now write BOTH `signal_failure_reason` and `errors`,
+and each `signal_summary` agrees with its reason code:
+
+| Branch | signal_failure_reason | signal_summary |
+|--------|----------------------|----------------|
+| success (`_invoke_agent_once` JSON parse) | `''` | real Agent summary |
+| `parse_failed` / clarification | `clarification_requested` | "Agent 1 requested query clarification…" |
+| `parse_failed` / non-JSON prose | `non_json_response` | "…unparseable response (non_json_response)…" |
+| `except` (timeout/conn error) | `agent_error` | "Agent 1 call failed: `<err>`. No sources were queried." |
+
+`_invoke_agent_once` no longer raises on prose responses — it returns a
+`{'parse_failed': True, 'failure_reason': ...}` dict, distinguishing a
+clarifying question (`clarification_requested`) from other non-JSON output
+(`non_json_response`). Only true infra failures raise (caught by `except`).
+
+### Node audit (same write-on-one-branch-not-the-other pattern)
+- `signal_monitor_node` — 3 branches — WAS buggy, now fixed.
+- `context_historian_node` — 1 return — clean.
+- `threat_analyst_node` → `assess_threat()` — 2 branches (success+except),
+  both return all 5 keys — clean.
+- `red_team_node` → `challenge_assessment()` — 2 branches, both return all
+  4 keys — clean.
+Only `signal_monitor_node` (the only multi-branch node) had the bug.
+
+### run_pipeline() wrapper
+Added single entry point `run_pipeline(analyst_query, session_id=None)` in
+pipeline.py — owns Flash Report generation, latency measurement, and state
+seeding (`signal_failure_reason: ''`). Callers use this, not `pipeline.invoke()`.
+`test_pipeline.py` refactored to call it.
+
+### Tests
+- `test_signal_branches.py` (NEW) — pure unit test, no AWS. 18 checks across
+  both `_invoke_agent_once` classification and all 4 `signal_monitor_node`
+  branches. Proves the `non_json_response` path that can't be forced live.
+- Live confirmation: Israel/Gaza (success, `''`), Tuvalu (clarification_requested),
+  India (agent_error — Bedrock read timeout). All showed reason ↔ summary agreement.
+
+### Open infra issue (NOT code)
+Bedrock Agent `OPABTSHSPN` intermittently read-times-out. India run hit
+6 stacked timeouts → 394s latency (pipeline degraded honestly: UNKNOWN,
+no fabricated score). Likely fix: raise boto3 client `read_timeout` in
+`signal_monitor_node` (currently default). Latency also volatile:
+Gaza 144s → Tuvalu 41s → India timeout. Separate from the <30s target work.
 
 ## Week 3 Plan
 

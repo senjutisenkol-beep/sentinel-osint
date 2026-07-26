@@ -83,7 +83,9 @@ def _refine_query(query: str, attempt: int) -> str:
 def _invoke_agent_once(client, session_id: str, query: str) -> dict:
     """
     Single attempt to call the Bedrock Agent and parse its JSON response.
-    Returns a result dict on success, raises on failure.
+    Returns a result dict on success, a parse_failed result dict when the
+    Agent responds with prose instead of a tool result, or raises on
+    infrastructure failure (timeout, connection error, etc).
     """
     response = client.invoke_agent(
         agentId     ='OPABTSHSPN',
@@ -97,8 +99,32 @@ def _invoke_agent_once(client, session_id: str, query: str) -> dict:
         if 'chunk' in event:
             raw += event['chunk']['bytes'].decode('utf-8')
 
-    # Extract outermost JSON object from prose-wrapped Bedrock response
+    # The Agent may return prose instead of a tool result —
+    # e.g. a clarifying question when the query is ambiguous.
+    # That is a different situation from a timeout or a
+    # malformed payload, and must not be collapsed into one
+    # generic exception.
     json_start = raw.find('{')
+    json_end   = raw.rfind('}') + 1
+
+    if json_start == -1 or json_end <= json_start:
+        clarify_markers = [
+            'could you', 'please clarify', 'can you specify',
+            'would you like', 'do you want'
+        ]
+        lowered = raw.lower()
+        if any(m in lowered for m in clarify_markers):
+            reason = 'clarification_requested'
+        else:
+            reason = 'non_json_response'
+
+        return {
+            'parse_failed':   True,
+            'failure_reason': reason,
+            'raw_response':   raw[:500],
+        }
+
+    # Extract outermost JSON object from prose-wrapped Bedrock response
     brace_count = 0
     json_end = json_start
     for i in range(json_start, len(raw)):
@@ -111,10 +137,12 @@ def _invoke_agent_once(client, session_id: str, query: str) -> dict:
     parsed = json.loads(raw[json_start:json_end])
     raw_confidence = parsed.get('confidence_score', 0.1)
     return {
-        'gdelt_events':      parsed.get('events', []),
-        'signal_confidence': max(0.1, raw_confidence),
-        'signal_summary':    parsed.get('signal_summary', raw),
-        'errors':            []
+        'gdelt_events':          parsed.get('events', []),
+        'signal_confidence':     max(0.1, raw_confidence),
+        'signal_summary':        parsed.get('signal_summary', raw),
+        'signal_failure_reason': '',   # explicit clear — prevents a stale
+                                       # reason surviving a loop-back success
+        'errors':                []
     }
 
 
@@ -127,7 +155,8 @@ def signal_monitor_node(state: SentinelState) -> dict:
     has enough signal to proceed — or returns best available after max tries.
 
     Reads:  session_id, analyst_query, loop_count
-    Writes: gdelt_events, signal_confidence, signal_summary, errors, loop_count
+    Writes: gdelt_events, signal_confidence, signal_summary, errors,
+            loop_count, signal_failure_reason
     """
     client = boto3.client('bedrock-agent-runtime', region_name='us-east-1')
     query      = state['analyst_query']
@@ -143,15 +172,42 @@ def signal_monitor_node(state: SentinelState) -> dict:
         )
         try:
             last_result = _invoke_agent_once(client, session_id, query)
+
+            if last_result.get('parse_failed'):
+                reason = last_result.get('failure_reason', 'unknown')
+                if reason == 'clarification_requested':
+                    summary = (
+                        'Agent 1 requested query clarification rather '
+                        'than searching. No sources were queried.'
+                    )
+                else:
+                    summary = (
+                        f'Agent 1 returned an unparseable response '
+                        f'({reason}). No sources were queried.'
+                    )
+                # Floor confidence is correct here — we genuinely have
+                # no signal. But the summary must say WHY.
+                return {
+                    'signal_confidence':     0.1,
+                    'signal_summary':        summary,
+                    'signal_failure_reason': reason,
+                    'gdelt_events':          [],
+                    'errors':                [],
+                    'loop_count':            state.get('loop_count', 0) + 1,
+                }
+
             if last_result['signal_confidence'] >= 0.3:
                 break  # Agent decides: enough signal
             query = _refine_query(query, attempt)
         except Exception as e:
             last_result = {
-                'gdelt_events':      [],
-                'signal_confidence': 0.1,
-                'signal_summary':    '',
-                'errors':            [f'signal_monitor_node failed (attempt {attempt + 1}): {str(e)}']
+                'gdelt_events':          [],
+                'signal_confidence':     0.1,
+                'signal_summary':        (
+                    f'Agent 1 call failed: {str(e)}. No sources were queried.'
+                ),
+                'signal_failure_reason': 'agent_error',
+                'errors':                [f'signal_monitor_node failed (attempt {attempt + 1}): {str(e)}']
             }
             query = _refine_query(query, attempt)
 
@@ -374,3 +430,56 @@ def build_pipeline():
 # Runs once on import. Reused by all subsequent imports.
 # Usage: from orchestration.pipeline import pipeline
 pipeline = build_pipeline()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RUN WRAPPER — single entry point for a full pipeline run
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_pipeline(analyst_query: str, session_id: str = None,
+                 condition: str = 'production') -> dict:
+    """
+    Single entry point for a full pipeline run.
+    Owns all run-completion concerns so that every
+    caller gets identical behaviour: Flash Report,
+    episode logging, and latency measurement.
+    Callers should use this, not pipeline.invoke().
+
+    condition: retrieval-condition tag written to the episode log.
+    Defaults to 'production'; the Day 17 harness overrides it to
+    label runs by experimental condition.
+    """
+    import time, uuid
+    from agents.episodic.episode_log import save_episode
+
+    session_id = session_id or str(uuid.uuid4())
+    initial_state = {
+        'analyst_query':         analyst_query,
+        'session_id':            session_id,
+        'loop_count':            0,
+        'signal_failure_reason': '',
+    }
+
+    start   = time.time()
+    result  = pipeline.invoke(initial_state)
+    latency = time.time() - start
+
+    # Run-completion concerns live here, not in callers.
+    flash = generate_flash_report(result)
+
+    # Callers get the complete run outcome. Anything that
+    # needed the flash report should not have to regenerate it.
+    result['flash_report']  = flash
+    result['report_id']     = flash['report_id']
+    result['total_latency'] = latency
+
+    print(f'[pipeline] Flash Report: {flash["report_id"]}')
+    print(f'[pipeline] Latency: {latency:.1f}s')
+
+    # Log the episode. Write-only: this is the system's own
+    # run history, used as the Day 17 calibration dataset.
+    # save_episode never raises, so it cannot break a run.
+    # result['report_id'] was set by the flash-report block above.
+    save_episode(result, latency, condition=condition)
+
+    return result
